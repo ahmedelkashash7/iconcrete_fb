@@ -1,0 +1,4 @@
+supplier_id,name_ar,name_en,phone,category,status
+SUP-D001,أسمنت السويس - عينة,Suez Cement Sample,+20224000001,cement,active
+SUP-D002,محاجر عتاقة - عينة,Ataka Quarries Sample,+20224000002,aggregate,active
+SUP-D003,إضافات البناء الحديثة - عينة,Modern Build Admixtures Sample,+20224000004,admixture,active

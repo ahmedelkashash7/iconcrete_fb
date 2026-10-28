@@ -1,0 +1,4 @@
+customer_id,name_ar,name_en,tax_id,phone,email,address,priority_tier,credit_limit_egp,credit_days,status,plant_id
+CUS-D001,شركة النيل للإنشاءات - عينة,Nile Construction Sample,DEMO-TAX-1001,+201000000001,customer1@demo.iconcrete.local,القاهرة الجديدة - التجمع الخامس,A,500000,30,active,PLT-0001
+CUS-D002,مقاولات الدلتا - عينة,Delta Contracting Sample,DEMO-TAX-1002,+201000000002,customer2@demo.iconcrete.local,الجيزة - 6 أكتوبر,B,750000,45,active,PLT-0001
+CUS-D003,شركة الأهرام للتعمير - عينة,Pyramids Development Sample,DEMO-TAX-1003,+201000000003,customer3@demo.iconcrete.local,القاهرة - مدينة نصر,A,1500000,60,active,PLT-0002

@@ -1,0 +1,210 @@
+import type { ImportTemplate, TemplateColumn } from './validation';
+
+const text = (
+  key: string,
+  labelAr: string,
+  labelEn: string,
+  required: boolean,
+  example: string,
+  extra: Partial<TemplateColumn> = {},
+): TemplateColumn => ({ key, labelAr, labelEn, type: 'text', required, example, ...extra });
+
+const id = (key: string, labelAr: string, labelEn: string, example: string): TemplateColumn => ({
+  key,
+  labelAr,
+  labelEn,
+  type: 'id',
+  required: true,
+  example,
+});
+
+const num = (
+  key: string,
+  labelAr: string,
+  labelEn: string,
+  required: boolean,
+  example: string,
+  extra: Partial<TemplateColumn> = {},
+): TemplateColumn => ({ key, labelAr, labelEn, type: 'number', required, example, ...extra });
+
+const dateCol = (key: string, labelAr: string, labelEn: string, required: boolean, example: string): TemplateColumn => ({
+  key,
+  labelAr,
+  labelEn,
+  type: 'date',
+  required,
+  example,
+});
+
+const enumCol = (
+  key: string,
+  labelAr: string,
+  labelEn: string,
+  values: readonly string[],
+  required: boolean,
+  example: string,
+): TemplateColumn => ({
+  key,
+  labelAr,
+  labelEn,
+  type: 'enum',
+  enumValues: values,
+  required,
+  example,
+});
+
+export const TEMPLATES: ImportTemplate[] = [
+  {
+    id: 'customers',
+    entity: 'customers',
+    version: '1.0.0',
+    sheetName: 'Customers',
+    descriptionAr: 'بيانات العملاء وسقوف الائتمان وشروط السداد.',
+    descriptionEn: 'Customers, credit limits and payment terms.',
+    uniqueKeys: ['customer_id'],
+    columns: [
+      id('customer_id', 'معرّف العميل', 'Customer ID', 'CUS-0001'),
+      text('name_ar', 'الاسم بالعربية', 'Name (Arabic)', true, 'شركة النيل للإنشاءات'),
+      text('name_en', 'الاسم بالإنجليزية', 'Name (English)', false, 'Nile Construction Co.'),
+      text('tax_id', 'الرقم الضريبي', 'Tax ID', false, 'TAX-1001'),
+      { key: 'phone', labelAr: 'الهاتف', labelEn: 'Phone', type: 'phone', required: false, example: '+201000000001' },
+      { key: 'email', labelAr: 'البريد الإلكتروني', labelEn: 'Email', type: 'email', required: false, example: 'info@example.com' },
+      text('address', 'العنوان', 'Address', false, 'القاهرة الجديدة'),
+      enumCol('priority_tier', 'درجة الأولوية', 'Priority tier', ['A', 'B', 'C'], true, 'A'),
+      num('credit_limit_egp', 'سقف الائتمان (ج.م)', 'Credit limit (EGP)', true, '1000000', { min: 0, max: 100_000_000 }),
+      { key: 'credit_days', labelAr: 'أيام السماح', labelEn: 'Credit days', type: 'integer', required: true, example: '30', min: 0, max: 180 },
+      enumCol('status', 'الحالة', 'Status', ['active', 'suspended', 'archived'], true, 'active'),
+      { key: 'plant_id', labelAr: 'المحطة', labelEn: 'Plant', type: 'id', required: true, example: 'PLT-0001', reference: 'plants' },
+    ],
+  },
+  {
+    id: 'suppliers',
+    entity: 'suppliers',
+    version: '1.0.0',
+    sheetName: 'Suppliers',
+    descriptionAr: 'بيانات الموردين وتصنيف كل مورد.',
+    descriptionEn: 'Suppliers and their category.',
+    uniqueKeys: ['supplier_id'],
+    columns: [
+      id('supplier_id', 'معرّف المورد', 'Supplier ID', 'SUP-001'),
+      text('name_ar', 'الاسم بالعربية', 'Name (Arabic)', true, 'أسمنت السويس'),
+      text('name_en', 'الاسم بالإنجليزية', 'Name (English)', false, 'Suez Cement'),
+      { key: 'phone', labelAr: 'الهاتف', labelEn: 'Phone', type: 'phone', required: true, example: '+20224000001' },
+      enumCol('category', 'التصنيف', 'Category', ['cement', 'aggregate', 'admixture', 'fuel', 'spare_parts', 'services'], true, 'cement'),
+      enumCol('status', 'الحالة', 'Status', ['active', 'suspended'], true, 'active'),
+    ],
+  },
+  {
+    id: 'materials',
+    entity: 'materials',
+    version: '1.0.0',
+    sheetName: 'Materials',
+    descriptionAr: 'المواد الخام مع الأرصدة الافتتاحية لكل محطة.',
+    descriptionEn: 'Raw materials with opening balances per plant.',
+    uniqueKeys: ['balance_id'],
+    columns: [
+      id('balance_id', 'معرّف الرصيد', 'Balance ID', 'BAL-0001'),
+      id('material_id', 'معرّف المادة', 'Material ID', 'MAT-001'),
+      text('code', 'كود المادة', 'Material code', true, 'CEM-OPC'),
+      text('name_ar', 'اسم المادة', 'Material name (Arabic)', true, 'أسمنت OPC'),
+      enumCol('unit', 'وحدة القياس', 'Unit', ['ton', 'm3', 'liter', 'kg'], true, 'ton'),
+      num('specific_gravity', 'الكثافة النوعية', 'Specific gravity', true, '3.15', { min: 0.5, max: 8 }),
+      num('reorder_level', 'حد إعادة الطلب', 'Reorder level', true, '25', { min: 0 }),
+      num('opening_qty', 'الرصيد الافتتاحي', 'Opening quantity', true, '120', { min: 0 }),
+      num('unit_cost', 'تكلفة الوحدة (ج.م)', 'Unit cost (EGP)', true, '2450', { min: 0 }),
+      { key: 'plant_id', labelAr: 'المحطة', labelEn: 'Plant', type: 'id', required: true, example: 'PLT-0001', reference: 'plants' },
+    ],
+  },
+  {
+    id: 'mix_designs',
+    entity: 'mix_designs',
+    version: '1.0.0',
+    sheetName: 'Mix_Designs',
+    descriptionAr: 'تصميمات الخلطات — يتم التحقق من عائد المتر المكعب ونسبة المياه/الأسمنت.',
+    descriptionEn: 'Mix designs — 1 m3 yield and water/cement ratio are validated.',
+    uniqueKeys: ['mix_id', 'code'],
+    columns: [
+      id('mix_id', 'معرّف الخلطة', 'Mix ID', 'MIX-001'),
+      text('code', 'كود الخلطة', 'Mix code', true, 'C30'),
+      enumCol('grade', 'الدرجة', 'Grade', ['C20', 'C25', 'C30', 'C35', 'C40', 'C45', 'C50'], true, 'C30'),
+      enumCol('exposure_class', 'ظرف التعرض', 'Exposure class', ['XC1', 'XC4', 'XS2', 'XS3'], true, 'XC1'),
+      num('cement_kg', 'أسمنت (كجم)', 'Cement (kg)', true, '400', { min: 100, max: 600 }),
+      num('sand_kg', 'رمل (كجم)', 'Sand (kg)', true, '650', { min: 0, max: 1200 }),
+      num('gravel_kg', 'زلط (كجم)', 'Gravel (kg)', true, '1150', { min: 0, max: 1500 }),
+      num('water_l', 'مياه (لتر)', 'Water (l)', true, '180', { min: 80, max: 260 }),
+      num('air_percent', 'هواء محبوس %', 'Entrained air %', true, '2', { min: 0, max: 8 }),
+      num('sg_cement', 'الكثافة النوعية للأسمنت', 'Cement SG', true, '3.15', { min: 2, max: 4 }),
+      num('sg_sand', 'الكثافة النوعية للرمل', 'Sand SG', true, '2.65', { min: 2, max: 3.5 }),
+      num('sg_gravel', 'الكثافة النوعية للزلط', 'Gravel SG', true, '2.68', { min: 2, max: 3.5 }),
+      enumCol('status', 'الحالة', 'Status', ['draft', 'testing', 'approved', 'active'], true, 'approved'),
+    ],
+  },
+  {
+    id: 'orders',
+    entity: 'orders',
+    version: '1.0.0',
+    sheetName: 'Orders',
+    descriptionAr: 'الطلبات — يتم التحقق من العميل وسقف الائتمان قبل الاستيراد.',
+    descriptionEn: 'Orders — customer existence and credit limit are validated.',
+    uniqueKeys: ['order_id'],
+    columns: [
+      id('order_id', 'معرّف الطلب', 'Order ID', 'ORD-1001'),
+      { key: 'customer_id', labelAr: 'معرّف العميل', labelEn: 'Customer ID', type: 'id', required: true, example: 'CUS-0001', reference: 'customers' },
+      text('mix_code', 'كود الخلطة', 'Mix code', true, 'C30'),
+      num('volume_m3', 'الحجم (م³)', 'Volume (m3)', true, '60', { min: 0.5, max: 5000 }),
+      dateCol('pour_date', 'تاريخ الصب', 'Pour date', true, '2026-10-30'),
+      num('unit_price', 'سعر المتر (ج.م)', 'Unit price (EGP)', true, '1750', { min: 0 }),
+      num('pump_fee', 'قيمة المضخة (ج.م)', 'Pump fee (EGP)', false, '0', { min: 0 }),
+      num('distance_km', 'المسافة (كم)', 'Distance (km)', false, '18', { min: 0, max: 300 }),
+      enumCol('status', 'الحالة', 'Status', ['draft', 'confirmed', 'scheduled', 'in_production', 'delivering', 'completed', 'invoiced'], true, 'confirmed'),
+      { key: 'plant_id', labelAr: 'المحطة', labelEn: 'Plant', type: 'id', required: true, example: 'PLT-0001', reference: 'plants' },
+    ],
+  },
+  {
+    id: 'employees',
+    entity: 'employees',
+    version: '1.0.0',
+    sheetName: 'Employees',
+    descriptionAr: 'بيانات الموظفين الأساسية والرواتب — لا تُوضع بيانات شخصية حقيقية في ملفات تجريبية.',
+    descriptionEn: 'Employee basics and salaries — never place real personal data in demo files.',
+    uniqueKeys: ['employee_id'],
+    columns: [
+      id('employee_id', 'معرّف الموظف', 'Employee ID', 'EMP-001'),
+      text('name_ar', 'الاسم بالعربية', 'Name (Arabic)', true, 'محمد فتحي'),
+      text('name_en', 'الاسم بالإنجليزية', 'Name (English)', false, 'Mohamed Fathy'),
+      text('job_title', 'المسمى الوظيفي', 'Job title', true, 'مشغل محطة'),
+      { key: 'phone', labelAr: 'الهاتف', labelEn: 'Phone', type: 'phone', required: false, example: '+201000000010' },
+      dateCol('hire_date', 'تاريخ التعيين', 'Hire date', true, '2024-03-01'),
+      num('basic_salary', 'الراتب الأساسي (ج.م)', 'Basic salary (EGP)', true, '9000', { min: 0 }),
+      { key: 'plant_id', labelAr: 'المحطة', labelEn: 'Plant', type: 'id', required: true, example: 'PLT-0001', reference: 'plants' },
+      enumCol('status', 'الحالة', 'Status', ['active', 'on_leave', 'terminated'], true, 'active'),
+    ],
+  },
+  {
+    id: 'fleet',
+    entity: 'fleet',
+    version: '1.0.0',
+    sheetName: 'Fleet',
+    descriptionAr: 'الشاحنات والسائقون وبيانات الترخيص.',
+    descriptionEn: 'Trucks, drivers and licence data.',
+    uniqueKeys: ['truck_id'],
+    columns: [
+      id('truck_id', 'معرّف الشاحنة', 'Truck ID', 'TRK-001'),
+      text('code', 'كود الشاحنة', 'Truck code', true, 'TRK-01'),
+      num('capacity_m3', 'سعة الحوض (م³)', 'Drum capacity (m3)', true, '12', { min: 1, max: 20 }),
+      enumCol('ownership', 'الملكية', 'Ownership', ['owned', 'leased', 'contracted'], true, 'owned'),
+      num('health_score', 'درجة الصحة', 'Health score', true, '88', { min: 0, max: 100 }),
+      dateCol('license_expiry', 'انتهاء الترخيص', 'Licence expiry', true, '2027-06-30'),
+      text('driver_name', 'اسم السائق', 'Driver name', false, 'سيد إبراهيم'),
+      num('driver_working_hours', 'ساعات عمل السائق اليومية', 'Driver daily hours', false, '8', { min: 0, max: 14 }),
+      enumCol('status', 'الحالة', 'Status', ['active', 'maintenance', 'idle'], true, 'active'),
+    ],
+  },
+];
+
+export const templateById = (templateId: string): ImportTemplate | undefined =>
+  TEMPLATES.find((template) => template.id === templateId);
+
+/** Expected header labels (Arabic first) used by the .xlsx template generator. */
+export const templateHeaderRow = (template: ImportTemplate): string[] =>
+  template.columns.map((column) => `${column.labelAr} | ${column.labelEn}`);

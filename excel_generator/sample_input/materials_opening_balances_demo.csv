@@ -1,0 +1,5 @@
+balance_id,material_id,code,name_ar,unit,specific_gravity,reorder_level,opening_qty,unit_cost,plant_id
+BAL-D001,MAT-D001,CEM-OPC,أسمنت OPC - عينة,ton,3.15,25,120,2450,PLT-0001
+BAL-D002,MAT-D002,SAND-01,رمل - عينة,ton,2.65,60,340,320,PLT-0001
+BAL-D003,MAT-D003,GRV-01,زلط ١ - عينة,ton,2.68,80,460,335,PLT-0001
+BAL-D004,MAT-D004,ADM-01,إضافات خرسانة - عينة,liter,1.05,400,1800,62,PLT-0002
