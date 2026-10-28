@@ -68,10 +68,18 @@ describe('ICONCRETE API', () => {
   test('health endpoint reports the locked brand', async () => {
     const response = await call('/api/health');
     expect(response.status).toBe(200);
-    const body = (await response.json()) as { brand: { name: string; tagline: string }; phase: number };
+    const body = (await response.json()) as {
+      brand: { name: string; tagline: string };
+      phase: number;
+      storage: { mode: string; adapter: string; durable: boolean };
+    };
     expect(body.brand.name).toBe('ICONCRETE');
     expect(body.brand.tagline).toBe('Concrete Management Solutions');
-    expect(body.phase).toBe(1);
+    expect(body.phase).toBe(2);
+    // Default mode for the test process is the in-memory adapter, reported explicitly.
+    expect(body.storage.mode).toBe('demo');
+    expect(body.storage.adapter).toBe('memory');
+    expect(body.storage.durable).toBe(false);
   });
 
   test('admin can sign in and receives a session token', async () => {

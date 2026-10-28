@@ -52,3 +52,32 @@ versions follow Semantic Versioning.
 - In-memory demo store only; no PostgreSQL/RLS, offline sync, 2FA or operational modules yet.
 - The specification's 0.9627 mix correction factor is truncated; the exact value is 0.9628
   after the generator's 4-decimal rounding, and tests assert that.
+
+## [Phase 2 — M1] Accounting core (durable)
+
+### Added
+- PostgreSQL adapter with explicit `demo` / `test` / `postgres` storage modes, hard
+  failure instead of silent fallback, and storage reporting in `/api/health`.
+- Four checksum-verified migrations: 48 tables, `numeric(18,2)` money, soft delete,
+  optimistic `version`, tenant/plant columns.
+- Row level security forced on 42 tables, with transaction-scoped tenant and plant
+  context and a restricted `iconcrete_app` role.
+- Deferred-commit balance trigger, posted-entry and posted-line immutability triggers.
+- Decimal-safe money core (bigint minor units), invoice/VAT/retention maths, FIFO
+  allocation, aging, straight-line depreciation, annuity loans, three-way match, bank
+  reconciliation and cheque state machine.
+- M1 service + API: journal posting/reversal, trial balance, general ledger, invoices,
+  payments, cheques, assets, loans, procurement and treasury.
+- `bun run db:migrate | db:seed | db:reset | db:status`.
+- Unit tests for every M1 calculation and PostgreSQL integration tests for migrations,
+  RLS isolation, triggers, sessions, audit and service flows.
+
+### Changed
+- Excel import templates bumped to schema version `1.1.0`.
+- `/api/health` reports `phase: 2`, `module: "M1"` and a `storage` block.
+
+### Known limitations
+- Login still uses the Phase 1 in-memory session store; durable `sessions` rows are not
+  written by the HTTP auth flow yet.
+- Excel uploads still stage in memory; `staged_imports` is not wired to the uploader.
+- No M1 screens yet.

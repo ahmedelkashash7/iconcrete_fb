@@ -57,7 +57,7 @@ export const TEMPLATES: ImportTemplate[] = [
   {
     id: 'customers',
     entity: 'customers',
-    version: '1.0.0',
+    version: '1.1.0',
     sheetName: 'Customers',
     descriptionAr: 'بيانات العملاء وسقوف الائتمان وشروط السداد.',
     descriptionEn: 'Customers, credit limits and payment terms.',
@@ -80,7 +80,7 @@ export const TEMPLATES: ImportTemplate[] = [
   {
     id: 'suppliers',
     entity: 'suppliers',
-    version: '1.0.0',
+    version: '1.1.0',
     sheetName: 'Suppliers',
     descriptionAr: 'بيانات الموردين وتصنيف كل مورد.',
     descriptionEn: 'Suppliers and their category.',
@@ -97,7 +97,7 @@ export const TEMPLATES: ImportTemplate[] = [
   {
     id: 'materials',
     entity: 'materials',
-    version: '1.0.0',
+    version: '1.1.0',
     sheetName: 'Materials',
     descriptionAr: 'المواد الخام مع الأرصدة الافتتاحية لكل محطة.',
     descriptionEn: 'Raw materials with opening balances per plant.',
@@ -118,7 +118,7 @@ export const TEMPLATES: ImportTemplate[] = [
   {
     id: 'mix_designs',
     entity: 'mix_designs',
-    version: '1.0.0',
+    version: '1.1.0',
     sheetName: 'Mix_Designs',
     descriptionAr: 'تصميمات الخلطات — يتم التحقق من عائد المتر المكعب ونسبة المياه/الأسمنت.',
     descriptionEn: 'Mix designs — 1 m3 yield and water/cement ratio are validated.',
@@ -142,7 +142,7 @@ export const TEMPLATES: ImportTemplate[] = [
   {
     id: 'orders',
     entity: 'orders',
-    version: '1.0.0',
+    version: '1.1.0',
     sheetName: 'Orders',
     descriptionAr: 'الطلبات — يتم التحقق من العميل وسقف الائتمان قبل الاستيراد.',
     descriptionEn: 'Orders — customer existence and credit limit are validated.',
@@ -163,7 +163,7 @@ export const TEMPLATES: ImportTemplate[] = [
   {
     id: 'employees',
     entity: 'employees',
-    version: '1.0.0',
+    version: '1.1.0',
     sheetName: 'Employees',
     descriptionAr: 'بيانات الموظفين الأساسية والرواتب — لا تُوضع بيانات شخصية حقيقية في ملفات تجريبية.',
     descriptionEn: 'Employee basics and salaries — never place real personal data in demo files.',
@@ -183,7 +183,7 @@ export const TEMPLATES: ImportTemplate[] = [
   {
     id: 'fleet',
     entity: 'fleet',
-    version: '1.0.0',
+    version: '1.1.0',
     sheetName: 'Fleet',
     descriptionAr: 'الشاحنات والسائقون وبيانات الترخيص.',
     descriptionEn: 'Trucks, drivers and licence data.',

@@ -14,6 +14,9 @@ import { customerOutstanding } from '../src/core/credit';
 import { TEMPLATES, templateById } from '../src/core/excelSchema';
 import { validateRows, type ReferenceIndex, type ValidationContext } from '../src/core/validation';
 import { canExportReports } from '../src/core/rbac';
+import { createDb, type Db } from './db/client';
+import { readStorageSettings, type StorageMode } from './db/mode';
+import { handleM1, postgresRequired } from './api/m1';
 import type { Customer, InventoryItem, Lang, Material, RoleLevel } from '../src/types';
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
@@ -57,10 +60,14 @@ interface Captcha {
 export interface App {
   store: AppStore;
   env: AppEnv;
+  db: Db | null;
+  storageMode: StorageMode;
   handle: (request: Request) => Promise<Response>;
 }
 
 export const createApp = async (env: AppEnv = readEnv()): Promise<App> => {
+  const storage = readStorageSettings();
+  const db = await createDb({ mode: storage.mode, databaseUrl: storage.databaseUrl });
   const store = await createStore(env);
   const captchas = new Map<string, Captcha>();
   const failedAttempts = new Map<string, number>();
@@ -143,11 +150,21 @@ export const createApp = async (env: AppEnv = readEnv()): Promise<App> => {
 
     try {
       if (path === '/api/health') {
+        const ping = db ? await db.ping() : null;
         return json({
           status: 'ok',
-          phase: 1,
+          phase: 2,
+          module: 'M1',
           brand: { name: 'ICONCRETE', tagline: 'Concrete Management Solutions' },
-          store: 'in-memory-demo',
+          storage: {
+            mode: storage.mode,
+            adapter: db ? 'postgres' : 'memory',
+            durable: Boolean(db),
+            database: ping ? { connected: ping.ok, version: ping.ok ? ping.version : null } : null,
+            rls: Boolean(db),
+          },
+          // Kept for Phase 1 clients that read this field.
+          store: db ? 'postgres' : 'in-memory-demo',
           timestamp: new Date().toISOString(),
         });
       }
@@ -270,6 +287,7 @@ export const createApp = async (env: AppEnv = readEnv()): Promise<App> => {
           company: { name_ar: store.dataset.company.name_ar, name_en: store.dataset.company.name_en },
           plants: store.dataset.plants,
           generatedAt: new Date().toISOString(),
+          storageMode: storage.mode,
         });
       }
 
@@ -646,6 +664,19 @@ export const createApp = async (env: AppEnv = readEnv()): Promise<App> => {
         return json({ entries: store.dataset.auditLog.filter((entry) => entry.action.startsWith('excel.')).slice(0, 100) });
       }
 
+      if (path.startsWith('/api/m1')) {
+        return (
+          (await handleM1(request, {
+            db: db as Db,
+            auth: (req, minLevel) => {
+              const session = sessionFor(req, minLevel);
+              return session.ok ? { ok: true, user: session.user } : session;
+            },
+            requireDb: () => (db ? null : postgresRequired()),
+          })) ?? fail(404, 'not_found')
+        );
+      }
+
       return fail(404, 'not_found');
     } catch (error) {
       console.error('[ICONCRETE API] unhandled error', error);
@@ -653,7 +684,7 @@ export const createApp = async (env: AppEnv = readEnv()): Promise<App> => {
     }
   };
 
-  return { store, env, handle };
+  return { store, env, db, storageMode: storage.mode, handle };
 };
 
 const serveDist = async (request: Request): Promise<Response | null> => {
@@ -680,5 +711,7 @@ if (import.meta.main) {
       return staticResponse ?? new Response('Not found', { status: 404 });
     },
   });
-  console.log(`ICONCRETE API listening on http://0.0.0.0:${port} (Phase 1, in-memory demo store)`);
+  console.log(
+    `ICONCRETE API listening on http://0.0.0.0:${port} (storage: ${app.storageMode}${app.db ? ', postgres' : ', memory'})`,
+  );
 }

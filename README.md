@@ -207,3 +207,21 @@ M19 Customer portal & apps.
 ## Licence
 
 MIT — see [LICENSE](LICENSE).
+
+## Phase 2 — M1 Accounting (durable PostgreSQL)
+
+The repository now ships an optional durable accounting core. Demo mode still needs no
+database; accounting endpoints require PostgreSQL and never fall back to memory.
+
+```bash
+bun run db:migrate     # apply db/migrations/*.sql
+bun run db:seed        # two demo companies, chart of accounts, invoices, ledger
+bun run db:status      # connectivity, RLS table count, trigger and role presence
+ICONCRETE_STORAGE_MODE=postgres DATABASE_URL=postgres://... bun run api
+```
+
+Health reports the active storage mode at `GET /api/health`. M1 endpoints live under
+`/api/m1/*` and answer `503 postgres_required` in demo mode.
+
+- Architecture, RLS model and setup: [docs/DATABASE.md](docs/DATABASE.md)
+- What M1 implements and what it deliberately does not: [docs/PHASE2_M1.md](docs/PHASE2_M1.md)
