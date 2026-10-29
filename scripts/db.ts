@@ -50,10 +50,26 @@ try {
     const result = await migrate(db);
     console.log(`migrated: ${result.applied.join(', ')}`);
     console.log(JSON.stringify(await seedDemo(db), null, 2));
+  } else if (command === 'role') {
+    // Credentials come from the environment only; nothing is written into SQL files.
+    const password = process.env.ICONCRETE_APP_PASSWORD;
+    if (!password || password.trim().length < 8) {
+      console.error(
+        'ICONCRETE_APP_PASSWORD must be set to a value of at least 8 characters.\n' +
+          'Example: ICONCRETE_APP_PASSWORD="$(openssl rand -base64 24)" bun run db:role',
+      );
+      process.exit(5);
+    }
+    // ALTER ROLE cannot take bind parameters; quote the value first so nothing is interpolated raw.
+    const quoted = await db.unsafe<{ q: string }>(`select quote_literal($1) as q`, [password]);
+    const literal = quoted[0]?.q;
+    if (!literal) throw new Error('could not quote the role password');
+    await db.unsafe(`alter role iconcrete_app with password ${literal}`);
+    console.log('role iconcrete_app password updated from ICONCRETE_APP_PASSWORD (value not printed)');
   } else if (command === 'status') {
     console.log(JSON.stringify(await databaseStatus(db), null, 2));
   } else {
-    console.error(`unknown command "${command}" — use migrate, seed, reset or status`);
+    console.error(`unknown command "${command}" — use migrate, seed, reset, role or status`);
     process.exit(2);
   }
 

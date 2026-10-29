@@ -5,7 +5,19 @@ import {
   type AppEnv,
   type AppStore,
 } from './store';
-import { authenticate, extractBearer, resolveSession, revokeSession, toSafeUser } from './auth';
+import {
+  authenticate,
+  authenticatePg,
+  extractBearer,
+  resolveSession,
+  resolveSessionPg,
+  revokeSession,
+  revokeSessionPg,
+  toSafeUser,
+  type AuthRequestMeta,
+  type SafeUser,
+} from './auth';
+import { PgAuthRepository } from './db/authRepo';
 import { buildErrorWorkbook, buildTemplateWorkbook, parseUpload } from './excel';
 import { buildCustomersWorkbook, buildReportWorkbook } from './export';
 import { buildReport, monthlySeries, REPORT_TYPES, type ReportType } from '../src/core/reports';
@@ -15,7 +27,7 @@ import { TEMPLATES, templateById } from '../src/core/excelSchema';
 import { validateRows, type ReferenceIndex, type ValidationContext } from '../src/core/validation';
 import { canExportReports } from '../src/core/rbac';
 import { createDb, type Db } from './db/client';
-import { readStorageSettings, type StorageMode } from './db/mode';
+import { readStorageSettings, type StorageMode, type StorageSettings } from './db/mode';
 import { handleM1, postgresRequired } from './api/m1';
 import type { Customer, InventoryItem, Lang, Material, RoleLevel } from '../src/types';
 
@@ -65,9 +77,14 @@ export interface App {
   handle: (request: Request) => Promise<Response>;
 }
 
-export const createApp = async (env: AppEnv = readEnv()): Promise<App> => {
-  const storage = readStorageSettings();
+export const createApp = async (
+  env: AppEnv = readEnv(),
+  settings: StorageSettings = readStorageSettings(),
+): Promise<App> => {
+  const storage = settings;
   const db = await createDb({ mode: storage.mode, databaseUrl: storage.databaseUrl });
+  // Durable sessions and audit in postgres mode; the in-memory adapter stays demo/test-only.
+  const authRepo = db ? new PgAuthRepository(db) : null;
   const store = await createStore(env);
   const captchas = new Map<string, Captcha>();
   const failedAttempts = new Map<string, number>();
@@ -111,13 +128,47 @@ export const createApp = async (env: AppEnv = readEnv()): Promise<App> => {
     })),
   });
 
-  const sessionFor = (
+  const requestMeta = (request: Request): AuthRequestMeta => ({
+    ip: clientIp(request),
+    device: request.headers.get('user-agent') ?? 'unknown',
+    requestId: request.headers.get('x-request-id') ?? null,
+  });
+
+  /** Audit events: durable in postgres mode, in-memory only for the demo adapter. */
+  const audit = async (entry: Parameters<typeof appendAudit>[1]): Promise<void> => {
+    if (authRepo) {
+      await authRepo.audit(entry);
+      return;
+    }
+    appendAudit(store, entry);
+  };
+
+  const sessionFor = async (
     request: Request,
     minLevel: RoleLevel,
-  ):
-    | { ok: true; user: ReturnType<typeof toSafeUser>; roleLevel: RoleLevel }
-    | { ok: false; response: Response } => {
-    const lookup = resolveSession(store, extractBearer(request), {
+  ): Promise<
+    | { ok: true; user: SafeUser; roleLevel: RoleLevel }
+    | { ok: false; response: Response }
+  > => {
+    const token = extractBearer(request);
+
+    if (authRepo) {
+      const lookup = await resolveSessionPg(
+        authRepo,
+        token,
+        { idleMinutes: env.idleMinutes, minLevel },
+        requestMeta(request),
+      );
+      if (!lookup.ok) {
+        return {
+          ok: false,
+          response: fail(lookup.code === 'forbidden' ? 403 : 401, lookup.code),
+        };
+      }
+      return { ok: true, user: lookup.user, roleLevel: lookup.user.role_level };
+    }
+
+    const lookup = resolveSession(store, token, {
       idleMinutes: env.idleMinutes,
       minLevel,
     });
@@ -129,6 +180,16 @@ export const createApp = async (env: AppEnv = readEnv()): Promise<App> => {
     }
     return { ok: true, user: toSafeUser(lookup.user), roleLevel: lookup.user.role_level };
   };
+
+  // Phase 1 read models are still the demo dataset (company CMP-0001). A session from
+  // another company must not read it: filter-free reads used to be a cross-tenant leak.
+  const tenantDataGuard = (user: SafeUser): Response | null =>
+    authRepo && user.company_id !== store.dataset.company.id
+      ? fail(403, 'tenant_data_unavailable', {
+          message:
+            'This phase serves the demo tenant dataset only. The requested company data is not available yet.',
+        })
+      : null;
 
   const customerRows = () =>
     store.dataset.customers.map((customer) => {
@@ -162,6 +223,9 @@ export const createApp = async (env: AppEnv = readEnv()): Promise<App> => {
             durable: Boolean(db),
             database: ping ? { connected: ping.ok, version: ping.ok ? ping.version : null } : null,
             rls: Boolean(db),
+            durableSessions: Boolean(authRepo),
+            durableAudit: Boolean(authRepo),
+            authAdapter: authRepo ? 'postgres' : 'memory',
           },
           // Kept for Phase 1 clients that read this field.
           store: db ? 'postgres' : 'in-memory-demo',
@@ -207,11 +271,16 @@ export const createApp = async (env: AppEnv = readEnv()): Promise<App> => {
           captchas.delete(challengeId);
         }
 
-        const result = await authenticate(
-          store,
-          { company, username, password, ip: clientIp(request), device: request.headers.get('user-agent') ?? 'unknown' },
-          env,
-        );
+        const credentials = {
+          company,
+          username,
+          password,
+          ip: clientIp(request),
+          device: request.headers.get('user-agent') ?? 'unknown',
+        };
+        const result = authRepo
+          ? await authenticatePg(authRepo, credentials, env, requestMeta(request))
+          : await authenticate(store, credentials, env);
 
         if (!result.ok) {
           failedAttempts.set(username.toLowerCase(), (failedAttempts.get(username.toLowerCase()) ?? 0) + 1);
@@ -237,7 +306,7 @@ export const createApp = async (env: AppEnv = readEnv()): Promise<App> => {
       }
 
       if (path === '/api/auth/me' && method === 'GET') {
-        const session = sessionFor(request, 1);
+        const session = await sessionFor(request, 1);
         if (!session.ok) return session.response;
         return json({
           user: session.user,
@@ -247,10 +316,15 @@ export const createApp = async (env: AppEnv = readEnv()): Promise<App> => {
 
       if (path === '/api/auth/logout' && method === 'POST') {
         const token = extractBearer(request);
+        if (authRepo) {
+          // Writes auth.logout + auth.session.revoked; the session is dead immediately.
+          await revokeSessionPg(authRepo, token, requestMeta(request));
+          return json({ ok: true });
+        }
         if (token) {
           const lookup = resolveSession(store, token, { idleMinutes: env.idleMinutes });
           if (lookup.ok) {
-            appendAudit(store, {
+            await audit({
               user_id: lookup.user.id,
               username: lookup.user.username,
               company_id: lookup.user.company_id,
@@ -267,8 +341,10 @@ export const createApp = async (env: AppEnv = readEnv()): Promise<App> => {
       }
 
       if (path === '/api/dashboard' && method === 'GET') {
-        const session = sessionFor(request, 1);
+        const session = await sessionFor(request, 1);
         if (!session.ok) return session.response;
+        const scope = tenantDataGuard(session.user);
+        if (scope) return scope;
         const kpis = computeKpis(store.dataset);
         const balance = balanceFor(store.dataset);
         const restricted = session.roleLevel < 2;
@@ -292,32 +368,43 @@ export const createApp = async (env: AppEnv = readEnv()): Promise<App> => {
       }
 
       if (path === '/api/customers' && method === 'GET') {
-        const session = sessionFor(request, 4);
+        const session = await sessionFor(request, 4);
         if (!session.ok) return session.response;
+        const scope = tenantDataGuard(session.user);
+        if (scope) return scope;
         return json({ customers: customerRows(), total: store.dataset.customers.length });
       }
 
       if (path === '/api/plants' && method === 'GET') {
-        const session = sessionFor(request, 5);
+        const session = await sessionFor(request, 5);
         if (!session.ok) return session.response;
+        const scope = tenantDataGuard(session.user);
+        if (scope) return scope;
         return json({ plants: store.dataset.plants });
       }
 
       if (path === '/api/users' && method === 'GET') {
-        const session = sessionFor(request, 5);
+        const session = await sessionFor(request, 5);
         if (!session.ok) return session.response;
+        const scope = tenantDataGuard(session.user);
+        if (scope) return scope;
         return json({ users: store.users.map((user) => toSafeUser(user)) });
       }
 
       if (path === '/api/audit' && method === 'GET') {
-        const session = sessionFor(request, 5);
+        const session = await sessionFor(request, 5);
         if (!session.ok) return session.response;
-        return json({ entries: store.dataset.auditLog.slice(0, 200) });
+        const entries = authRepo
+          ? await authRepo.listAudit(session.user.company_id, 200)
+          : store.dataset.auditLog.slice(0, 200);
+        return json({ entries });
       }
 
       if (path.startsWith('/api/reports/') && method === 'GET') {
-        const session = sessionFor(request, 1);
+        const session = await sessionFor(request, 1);
         if (!session.ok) return session.response;
+        const scope = tenantDataGuard(session.user);
+        if (scope) return scope;
         const type = path.replace('/api/reports/', '') as ReportType;
         if (!REPORT_TYPES.includes(type)) return fail(404, 'not_found');
         const range = defaultRange();
@@ -330,8 +417,10 @@ export const createApp = async (env: AppEnv = readEnv()): Promise<App> => {
       }
 
       if (path.startsWith('/api/export/reports/') && method === 'GET') {
-        const session = sessionFor(request, 2);
+        const session = await sessionFor(request, 2);
         if (!session.ok) return session.response;
+        const scope = tenantDataGuard(session.user);
+        if (scope) return scope;
         if (!canExportReports(session.roleLevel)) return fail(403, 'forbidden');
         const type = path.replace('/api/export/reports/', '').replace(/\.xlsx$/, '') as ReportType;
         if (!REPORT_TYPES.includes(type)) return fail(404, 'not_found');
@@ -344,7 +433,7 @@ export const createApp = async (env: AppEnv = readEnv()): Promise<App> => {
           ...(url.searchParams.get('customerId') ? { customerId: url.searchParams.get('customerId') ?? '' } : {}),
         });
         const buffer = await buildReportWorkbook(report, detectLang(request));
-        appendAudit(store, {
+        await audit({
           user_id: session.user.id,
           username: session.user.username,
           company_id: session.user.company_id,
@@ -358,8 +447,10 @@ export const createApp = async (env: AppEnv = readEnv()): Promise<App> => {
       }
 
       if (path === '/api/export/customers.xlsx' && method === 'GET') {
-        const session = sessionFor(request, 4);
+        const session = await sessionFor(request, 4);
         if (!session.ok) return session.response;
+        const scope = tenantDataGuard(session.user);
+        if (scope) return scope;
         const lang = detectLang(request);
         const rows = customerRows().map((row) => ({
           id: row.id,
@@ -375,7 +466,7 @@ export const createApp = async (env: AppEnv = readEnv()): Promise<App> => {
           phone: row.phone,
         }));
         const buffer = await buildCustomersWorkbook(rows, lang);
-        appendAudit(store, {
+        await audit({
           user_id: session.user.id,
           username: session.user.username,
           company_id: session.user.company_id,
@@ -389,7 +480,7 @@ export const createApp = async (env: AppEnv = readEnv()): Promise<App> => {
       }
 
       if (path === '/api/excel/templates' && method === 'GET') {
-        const session = sessionFor(request, 4);
+        const session = await sessionFor(request, 4);
         if (!session.ok) return session.response;
         return json({
           templates: TEMPLATES.map((template) => ({
@@ -405,13 +496,13 @@ export const createApp = async (env: AppEnv = readEnv()): Promise<App> => {
       }
 
       if (path.startsWith('/api/excel/templates/') && path.endsWith('.xlsx') && method === 'GET') {
-        const session = sessionFor(request, 4);
+        const session = await sessionFor(request, 4);
         if (!session.ok) return session.response;
         const templateId = path.replace('/api/excel/templates/', '').replace(/\.xlsx$/, '');
         const template = templateById(templateId);
         if (!template) return fail(404, 'not_found');
         const buffer = await buildTemplateWorkbook(template);
-        appendAudit(store, {
+        await audit({
           user_id: session.user.id,
           username: session.user.username,
           company_id: session.user.company_id,
@@ -425,8 +516,10 @@ export const createApp = async (env: AppEnv = readEnv()): Promise<App> => {
       }
 
       if (path === '/api/excel/validate' && method === 'POST') {
-        const session = sessionFor(request, 4);
+        const session = await sessionFor(request, 4);
         if (!session.ok) return session.response;
+        const scope = tenantDataGuard(session.user);
+        if (scope) return scope;
 
         const form = await request.formData().catch(() => null);
         const file = form?.get('file');
@@ -467,7 +560,7 @@ export const createApp = async (env: AppEnv = readEnv()): Promise<App> => {
           importedRows: 0,
         });
 
-        appendAudit(store, {
+        await audit({
           user_id: session.user.id,
           username: session.user.username,
           company_id: session.user.company_id,
@@ -487,25 +580,25 @@ export const createApp = async (env: AppEnv = readEnv()): Promise<App> => {
           },
         });
 
-        result.rows
+        const rejected = result.rows
           .filter((row) => row.issues.some((issue) => issue.severity === 'error'))
-          .slice(0, 50)
-          .forEach((row) => {
-            appendAudit(store, {
-              user_id: session.user.id,
-              username: session.user.username,
-              company_id: session.user.company_id,
-              action: 'excel.row_rejected',
-              table_name: 'excel_imports',
-              record_id: stagedId,
-              ip_address: clientIp(request),
-              details: {
-                rowNumber: row.rowNumber,
-                codes: row.issues.filter((issue) => issue.severity === 'error').map((issue) => issue.code),
-                columns: row.issues.filter((issue) => issue.severity === 'error').map((issue) => issue.column),
-              },
-            });
+          .slice(0, 50);
+        for (const row of rejected) {
+          await audit({
+            user_id: session.user.id,
+            username: session.user.username,
+            company_id: session.user.company_id,
+            action: 'excel.row_rejected',
+            table_name: 'excel_imports',
+            record_id: stagedId,
+            ip_address: clientIp(request),
+            details: {
+              rowNumber: row.rowNumber,
+              codes: row.issues.filter((issue) => issue.severity === 'error').map((issue) => issue.code),
+              columns: row.issues.filter((issue) => issue.severity === 'error').map((issue) => issue.column),
+            },
           });
+        }
 
         return json({
           stagedId,
@@ -525,8 +618,10 @@ export const createApp = async (env: AppEnv = readEnv()): Promise<App> => {
       }
 
       if (path === '/api/excel/commit' && method === 'POST') {
-        const session = sessionFor(request, 4);
+        const session = await sessionFor(request, 4);
         if (!session.ok) return session.response;
+        const scope = tenantDataGuard(session.user);
+        if (scope) return scope;
         const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
         const stagedId = String(body.stagedId ?? '');
         if (body.confirm !== true) return fail(400, 'confirmation_required');
@@ -610,7 +705,7 @@ export const createApp = async (env: AppEnv = readEnv()): Promise<App> => {
         staged.committed = true;
         staged.importedRows = validRows.length;
 
-        appendAudit(store, {
+        await audit({
           user_id: session.user.id,
           username: session.user.username,
           company_id: session.user.company_id,
@@ -637,15 +732,17 @@ export const createApp = async (env: AppEnv = readEnv()): Promise<App> => {
       }
 
       if (path.startsWith('/api/excel/errors/') && path.endsWith('.xlsx') && method === 'GET') {
-        const session = sessionFor(request, 4);
+        const session = await sessionFor(request, 4);
         if (!session.ok) return session.response;
+        const scope = tenantDataGuard(session.user);
+        if (scope) return scope;
         const stagedId = path.replace('/api/excel/errors/', '').replace(/\.xlsx$/, '');
         const staged = store.staged.get(stagedId);
         if (!staged) return fail(404, 'not_found');
         const template = templateById(staged.templateId);
         if (!template) return fail(400, 'invalid_template');
         const buffer = await buildErrorWorkbook(staged.result, template, staged.fileName);
-        appendAudit(store, {
+        await audit({
           user_id: session.user.id,
           username: session.user.username,
           company_id: session.user.company_id,
@@ -659,8 +756,10 @@ export const createApp = async (env: AppEnv = readEnv()): Promise<App> => {
       }
 
       if (path === '/api/excel/audit' && method === 'GET') {
-        const session = sessionFor(request, 4);
+        const session = await sessionFor(request, 4);
         if (!session.ok) return session.response;
+        const scope = tenantDataGuard(session.user);
+        if (scope) return scope;
         return json({ entries: store.dataset.auditLog.filter((entry) => entry.action.startsWith('excel.')).slice(0, 100) });
       }
 
@@ -668,8 +767,8 @@ export const createApp = async (env: AppEnv = readEnv()): Promise<App> => {
         return (
           (await handleM1(request, {
             db: db as Db,
-            auth: (req, minLevel) => {
-              const session = sessionFor(req, minLevel);
+            auth: async (req, minLevel) => {
+              const session = await sessionFor(req, minLevel);
               return session.ok ? { ok: true, user: session.user } : session;
             },
             requireDb: () => (db ? null : postgresRequired()),

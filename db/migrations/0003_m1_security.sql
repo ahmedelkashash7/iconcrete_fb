@@ -192,10 +192,13 @@ begin
 end $$;
 
 -- --------------------------------------------------------- application role
+-- Application role. No password is ever embedded in a migration: the connection secret
+-- comes from the environment (DATABASE_URL / deployment secret). Use `bun run db:role`
+-- to set a password for a local development cluster.
 do $$
 begin
   if not exists (select 1 from pg_roles where rolname = 'iconcrete_app') then
-    create role iconcrete_app login password 'iconcrete_dev_only';
+    create role iconcrete_app login;
   end if;
 end $$;
 

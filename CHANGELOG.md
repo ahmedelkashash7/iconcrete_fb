@@ -3,6 +3,31 @@
 All notable changes to ICONCRETE (IConcrete-fp). Format based on Keep a Changelog;
 versions follow Semantic Versioning.
 
+## [Phase 2 — M1 security remediation] — 2026-10-29
+
+### Added
+
+- Durable authentication in `postgres` mode: company/user lookup, session creation,
+  sliding validation, revocation and expiry, all through `SECURITY DEFINER` functions in
+  `db/migrations/0006_m1_durable_auth.sql`. Only the SHA-256 token hash is stored; failure
+  counters and lockouts persist across restarts.
+- Audit events `auth.login.success`, `auth.login.failure`, `auth.logout`,
+  `auth.session.revoked`, `auth.session.expired` and `auth.lockout`, plus an append-only
+  trigger and RLS-backed reads on `/api/audit`.
+- Production configuration enforcement: `ICONCRETE_ENV=production` requires postgres
+  storage, a non-placeholder `DATABASE_URL` and a non-demo admin secret of 12+ characters.
+  Numeric settings are validated instead of silently clamped.
+- Cross-tenant guard: routes still served by the demo dataset answer
+  `403 tenant_data_unavailable` for other companies.
+- `docs/SECURITY.md`, `tests/m1/auth.durable.test.ts` and a cross-plant write RLS test.
+
+### Fixed
+
+- `bun run db:seed` is idempotent again: links to journal entries are released before the
+  entries are removed, roles are deleted before companies, and the seed opts into
+  transaction-scoped maintenance flags (`app.seed_reset`, `app.audit_purge`) that request
+  connections never set.
+
 ## [0.1.0] — 2026-10-28 — Phase 1
 
 ### Added — web application

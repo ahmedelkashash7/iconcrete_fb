@@ -1,6 +1,13 @@
 import { createDemoDataset } from '../src/seed/demo';
 import type { AuditEntry, DemoDataset, SessionRecord, User } from '../src/types';
 import type { ValidationResult } from '../src/core/validation';
+import {
+  assertProductionSecrets,
+  ConfigurationError,
+  DEMO_ADMIN_PASSWORD,
+  parseRuntimeEnvironment,
+  type RuntimeEnvironment,
+} from './db/mode';
 
 export interface AuthedUser extends User {
   password_hash: string;
@@ -38,6 +45,7 @@ export interface AppStore {
 }
 
 export interface AppEnv {
+  environment: RuntimeEnvironment;
   adminPassword: string;
   idleMinutes: number;
   maxFailedLogins: number;
@@ -45,13 +53,48 @@ export interface AppEnv {
   maxUploadBytes: number;
 }
 
-export const readEnv = (): AppEnv => ({
-  adminPassword: process.env.ICONCRETE_DEMO_ADMIN_PASSWORD ?? 'Demo@2026',
-  idleMinutes: Number(process.env.ICONCRETE_SESSION_IDLE_MINUTES ?? 30),
-  maxFailedLogins: Number(process.env.ICONCRETE_MAX_FAILED_LOGINS ?? 5),
-  lockoutMinutes: Number(process.env.ICONCRETE_LOCKOUT_MINUTES ?? 15),
-  maxUploadBytes: Number(process.env.ICONCRETE_MAX_UPLOAD_BYTES ?? 2_097_152),
-});
+const boundedInteger = (
+  raw: string | undefined,
+  fallback: number,
+  min: number,
+  max: number,
+  name: string,
+): number => {
+  const value = raw === undefined || raw.trim() === '' ? fallback : Number(raw);
+  if (!Number.isInteger(value) || value < min || value > max) {
+    throw new ConfigurationError(
+      'invalid_configuration',
+      `${name} must be an integer between ${min} and ${max} (received an invalid value).`,
+    );
+  }
+  return value;
+};
+
+/**
+ * Reads and validates the runtime configuration.
+ *
+ * In production the demo credential is rejected outright, so a development password
+ * can never quietly become a production password. Secrets are never logged here.
+ */
+export const readEnv = (env: NodeJS.ProcessEnv = process.env): AppEnv => {
+  const environment = parseRuntimeEnvironment(env.ICONCRETE_ENV);
+  assertProductionSecrets(env, environment);
+
+  return {
+    environment,
+    adminPassword: env.ICONCRETE_DEMO_ADMIN_PASSWORD?.trim() || DEMO_ADMIN_PASSWORD,
+    idleMinutes: boundedInteger(env.ICONCRETE_SESSION_IDLE_MINUTES, 30, 1, 1440, 'ICONCRETE_SESSION_IDLE_MINUTES'),
+    maxFailedLogins: boundedInteger(env.ICONCRETE_MAX_FAILED_LOGINS, 5, 1, 50, 'ICONCRETE_MAX_FAILED_LOGINS'),
+    lockoutMinutes: boundedInteger(env.ICONCRETE_LOCKOUT_MINUTES, 15, 1, 1440, 'ICONCRETE_LOCKOUT_MINUTES'),
+    maxUploadBytes: boundedInteger(
+      env.ICONCRETE_MAX_UPLOAD_BYTES,
+      2_097_152,
+      1_024,
+      8 * 1_048_576,
+      'ICONCRETE_MAX_UPLOAD_BYTES',
+    ),
+  };
+};
 
 /**
  * Phase 1 store: seeded in-memory demo data + hashed demo credentials.

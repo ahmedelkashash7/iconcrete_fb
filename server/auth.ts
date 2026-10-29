@@ -1,4 +1,5 @@
 import { appendAudit, type AppEnv, type AppStore, type AuthedUser } from './store';
+import { safeUserFromRow, type PgAuthRepository, type PgUserRow } from './db/authRepo';
 import type { RoleLevel, SessionRecord } from '../src/types';
 
 export type AuthFailureCode =
@@ -208,4 +209,257 @@ export const extractBearer = (request: Request): string | null => {
   const header = request.headers.get('authorization') ?? '';
   const match = /^Bearer\s+(.+)$/i.exec(header.trim());
   return match?.[1] ?? null;
+};
+
+// ---------------------------------------------------------------------------
+// Durable (PostgreSQL) authentication.
+//
+// Same contract as the in-memory adapter, but every session, failure counter and
+// audit event is persisted. The in-memory path above stays the demo/test adapter.
+// ---------------------------------------------------------------------------
+
+export interface AuthRequestMeta {
+  ip: string;
+  device: string;
+  requestId?: string | null;
+}
+
+export type PgSessionLookup =
+  | { ok: true; user: SafeUser; sessionId: string; expiresAt: string }
+  | { ok: false; code: 'unauthorized' | 'forbidden' };
+
+const auditEvent = (
+  repo: PgAuthRepository,
+  meta: AuthRequestMeta,
+  event: {
+    action: string;
+    result: 'success' | 'failure';
+    companyId: string | null;
+    userId?: string | null;
+    username?: string;
+    recordId?: string | null;
+    details?: Record<string, unknown>;
+  },
+): Promise<void> =>
+  repo.audit({
+    company_id: event.companyId,
+    user_id: event.userId ?? null,
+    username: event.username ?? '',
+    action: event.action,
+    table_name: 'sessions',
+    record_id: event.recordId ?? null,
+    ip_address: meta.ip,
+    user_agent: meta.device,
+    request_id: meta.requestId ?? null,
+    result: event.result,
+    details: event.details ?? {},
+  });
+
+const verifyPassword = async (password: string, hash: string): Promise<boolean> => {
+  try {
+    return await Bun.password.verify(password, hash);
+  } catch {
+    // A malformed hash must fail closed, never throw a 500 that leaks internals.
+    return false;
+  }
+};
+
+export const authenticatePg = async (
+  repo: PgAuthRepository,
+  input: LoginInput,
+  env: AppEnv,
+  meta: AuthRequestMeta,
+): Promise<AuthResult> => {
+  const company = await repo.findCompany(input.company);
+  if (!company) {
+    await auditEvent(repo, meta, {
+      action: 'auth.login.failure',
+      result: 'failure',
+      companyId: null,
+      username: input.username,
+      details: { reason: 'company_not_found', company: input.company },
+    });
+    return { ok: false, code: 'company_not_found', failedAttempts: 0 };
+  }
+
+  const user: PgUserRow | null = await repo.findUser(company.id, input.username);
+  if (!user) {
+    await auditEvent(repo, meta, {
+      action: 'auth.login.failure',
+      result: 'failure',
+      companyId: company.id,
+      username: input.username,
+      details: { reason: 'unknown_user' },
+    });
+    return { ok: false, code: 'invalid_credentials', failedAttempts: 0 };
+  }
+
+  const lockedUntil = user.locked_until ? new Date(user.locked_until).toISOString() : null;
+  if (lockedUntil && new Date(lockedUntil).getTime() > Date.now()) {
+    await auditEvent(repo, meta, {
+      action: 'auth.login.failure',
+      result: 'failure',
+      companyId: company.id,
+      userId: user.id,
+      username: user.username,
+      recordId: user.id,
+      details: { reason: 'account_locked', locked_until: lockedUntil },
+    });
+    return {
+      ok: false,
+      code: 'account_locked',
+      failedAttempts: Number(user.failed_login_attempts ?? 0),
+      lockedUntil,
+    };
+  }
+
+  if (!user.is_active) {
+    await auditEvent(repo, meta, {
+      action: 'auth.login.failure',
+      result: 'failure',
+      companyId: company.id,
+      userId: user.id,
+      username: user.username,
+      recordId: user.id,
+      details: { reason: 'account_inactive' },
+    });
+    return { ok: false, code: 'account_inactive', failedAttempts: 0 };
+  }
+
+  if (!input.password || !(await verifyPassword(input.password, user.password_hash))) {
+    const state = await repo.recordFailure(user.id, env.maxFailedLogins, env.lockoutMinutes);
+    await auditEvent(repo, meta, {
+      action: 'auth.login.failure',
+      result: 'failure',
+      companyId: company.id,
+      userId: user.id,
+      username: user.username,
+      recordId: user.id,
+      details: {
+        reason: 'invalid_credentials',
+        attempts: state.failedAttempts,
+        locked_until: state.lockedUntil,
+      },
+    });
+    if (state.lockedUntil) {
+      await auditEvent(repo, meta, {
+        action: 'auth.lockout',
+        result: 'failure',
+        companyId: company.id,
+        userId: user.id,
+        username: user.username,
+        recordId: user.id,
+        details: { locked_until: state.lockedUntil, max_attempts: env.maxFailedLogins },
+      });
+      return {
+        ok: false,
+        code: 'account_locked',
+        failedAttempts: state.failedAttempts,
+        lockedUntil: state.lockedUntil,
+      };
+    }
+    return { ok: false, code: 'invalid_credentials', failedAttempts: state.failedAttempts };
+  }
+
+  await repo.recordSuccess(user.id);
+
+  // A brand new opaque token per login: no fixation and nothing guessable.
+  const token = `ic_${crypto.randomUUID()}${crypto.randomUUID()}`;
+  const sessionId = `SES-${crypto.randomUUID().slice(0, 12)}`;
+  const expiresAt = await repo.createSession({
+    sessionId,
+    companyId: company.id,
+    userId: user.id,
+    tokenHash: hashToken(token),
+    ip: meta.ip,
+    device: meta.device,
+    idleMinutes: env.idleMinutes,
+  });
+
+  await auditEvent(repo, meta, {
+    action: 'auth.login.success',
+    result: 'success',
+    companyId: company.id,
+    userId: user.id,
+    username: user.username,
+    recordId: sessionId,
+    details: { role_level: user.role_level, expires_at: expiresAt },
+  });
+
+  return {
+    ok: true,
+    token,
+    expiresAt,
+    user: safeUserFromRow(user) as SafeUser,
+    companyNameAr: company.name_ar,
+    companyNameEn: company.name_en,
+  };
+};
+
+export const resolveSessionPg = async (
+  repo: PgAuthRepository,
+  token: string | null,
+  opts: { idleMinutes: number; minLevel?: RoleLevel },
+  meta: AuthRequestMeta,
+): Promise<PgSessionLookup> => {
+  if (!token) return { ok: false, code: 'unauthorized' };
+  const tokenHash = hashToken(token);
+  const row = await repo.resolveSession(tokenHash, opts.idleMinutes);
+  if (!row) {
+    // Distinguish an expired session (audited) from an unknown/revoked token.
+    const expired = await repo.expireSession(tokenHash);
+    if (expired) {
+      await auditEvent(repo, meta, {
+        action: 'auth.session.expired',
+        result: 'failure',
+        companyId: expired.company_id,
+        userId: expired.user_id,
+        username: expired.username,
+        recordId: expired.session_id,
+      });
+    }
+    return { ok: false, code: 'unauthorized' };
+  }
+
+  const user = safeUserFromRow(row.user_data) as SafeUser;
+  if (opts.minLevel !== undefined && user.role_level < opts.minLevel) {
+    return { ok: false, code: 'forbidden' };
+  }
+
+  return {
+    ok: true,
+    user,
+    sessionId: row.session_id,
+    expiresAt:
+      row.expires_at instanceof Date ? row.expires_at.toISOString() : new Date(row.expires_at).toISOString(),
+  };
+};
+
+/** Revokes the durable session, writing both required audit events. */
+export const revokeSessionPg = async (
+  repo: PgAuthRepository,
+  token: string | null,
+  meta: AuthRequestMeta,
+): Promise<boolean> => {
+  if (!token) return false;
+  const revoked = await repo.revokeSession(hashToken(token));
+  if (!revoked) return false;
+
+  await auditEvent(repo, meta, {
+    action: 'auth.logout',
+    result: 'success',
+    companyId: revoked.company_id,
+    userId: revoked.user_id,
+    username: revoked.username,
+    recordId: revoked.session_id,
+  });
+  await auditEvent(repo, meta, {
+    action: 'auth.session.revoked',
+    result: 'success',
+    companyId: revoked.company_id,
+    userId: revoked.user_id,
+    username: revoked.username,
+    recordId: revoked.session_id,
+  });
+  return true;
 };

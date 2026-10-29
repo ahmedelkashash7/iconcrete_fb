@@ -18,7 +18,10 @@ const fail = (status: number, code: string, extra: Record<string, unknown> = {})
 
 export interface M1Deps {
   db: Db;
-  auth: (request: Request, minLevel: RoleLevel) => { ok: true; user: SafeUser } | { ok: false; response: Response };
+  auth: (
+    request: Request,
+    minLevel: RoleLevel,
+  ) => Promise<{ ok: true; user: SafeUser } | { ok: false; response: Response }>;
   requireDb: () => Response | null;
 }
 
@@ -62,15 +65,15 @@ export const handleM1 = async (request: Request, deps: M1Deps): Promise<Response
   const service = new M1Service(deps.db);
 
   // Returns the authenticated context or the exact denial response (401 vs 403).
-  const guarded = (minLevel: RoleLevel): ReturnType<typeof contextFor> | Response => {
-    const auth = deps.auth(request, minLevel);
+  const guarded = async (minLevel: RoleLevel): Promise<ReturnType<typeof contextFor> | Response> => {
+    const auth = await deps.auth(request, minLevel);
     return auth.ok ? contextFor(auth.user, request) : auth.response;
   };
 
   try {
     // ------------------------------------------------------------- journal
     if (path === '/api/m1/journal' && method === 'GET') {
-      const context = guarded(2);
+      const context = await guarded(2);
       if (context instanceof Response) return context;
       const entries = await service.listJournal(context, {
         from: url.searchParams.get('from') ?? undefined,
@@ -81,7 +84,7 @@ export const handleM1 = async (request: Request, deps: M1Deps): Promise<Response
     }
 
     if (path === '/api/m1/journal' && method === 'POST') {
-      const context = guarded(4);
+      const context = await guarded(4);
       if (context instanceof Response) return context;
       const payload = await body(request);
       const lines = Array.isArray(payload.lines) ? payload.lines : [];
@@ -109,7 +112,7 @@ export const handleM1 = async (request: Request, deps: M1Deps): Promise<Response
 
     const reverseMatch = /^\/api\/m1\/journal\/(\d+)\/reverse$/.exec(path);
     if (reverseMatch && method === 'POST') {
-      const context = guarded(4);
+      const context = await guarded(4);
       if (context instanceof Response) return context;
       const payload = await body(request);
       const entry = await service.reverseJournal(context, Number(reverseMatch[1]), {
@@ -120,7 +123,7 @@ export const handleM1 = async (request: Request, deps: M1Deps): Promise<Response
     }
 
     if (path === '/api/m1/trial-balance' && method === 'GET') {
-      const context = guarded(2);
+      const context = await guarded(2);
       if (context instanceof Response) return context;
       return json(await service.trialBalance(context, {
         from: url.searchParams.get('from') ?? undefined,
@@ -129,7 +132,7 @@ export const handleM1 = async (request: Request, deps: M1Deps): Promise<Response
     }
 
     if (path === '/api/m1/ledger' && method === 'GET') {
-      const context = guarded(2);
+      const context = await guarded(2);
       if (context instanceof Response) return context;
       const account = url.searchParams.get('account');
       if (!account) return fail(400, 'account_required');
@@ -141,7 +144,7 @@ export const handleM1 = async (request: Request, deps: M1Deps): Promise<Response
 
     // ------------------------------------------------------------ invoices
     if (path === '/api/m1/invoices' && method === 'POST') {
-      const context = guarded(4);
+      const context = await guarded(4);
       if (context instanceof Response) return context;
       const payload = await body(request);
       const items = Array.isArray(payload.items) ? payload.items : [];
@@ -169,19 +172,19 @@ export const handleM1 = async (request: Request, deps: M1Deps): Promise<Response
 
     const invoicePost = /^\/api\/m1\/invoices\/([^/]+)\/post$/.exec(path);
     if (invoicePost && method === 'POST') {
-      const context = guarded(4);
+      const context = await guarded(4);
       if (context instanceof Response) return context;
       return json(await service.postInvoice(context, invoicePost[1] ?? ''));
     }
 
     if (path === '/api/m1/aging' && method === 'GET') {
-      const context = guarded(2);
+      const context = await guarded(2);
       if (context instanceof Response) return context;
       return json(await service.aging(context, url.searchParams.get('asOf') ?? undefined));
     }
 
     if (path === '/api/m1/payments' && method === 'POST') {
-      const context = guarded(2);
+      const context = await guarded(2);
       if (context instanceof Response) return context;
       const payload = await body(request);
       const methodValue = str(payload.method);
@@ -202,7 +205,7 @@ export const handleM1 = async (request: Request, deps: M1Deps): Promise<Response
     // ------------------------------------------------------------- cheques
     const chequeTransition = /^\/api\/m1\/cheques\/([^/]+)\/transition$/.exec(path);
     if (chequeTransition && method === 'POST') {
-      const context = guarded(4);
+      const context = await guarded(4);
       if (context instanceof Response) return context;
       const payload = await body(request);
       const to = str(payload.to) as ChequeStatus;
@@ -217,7 +220,7 @@ export const handleM1 = async (request: Request, deps: M1Deps): Promise<Response
 
     // -------------------------------------------------------------- assets
     if (path === '/api/m1/assets' && method === 'POST') {
-      const context = guarded(5);
+      const context = await guarded(5);
       if (context instanceof Response) return context;
       const payload = await body(request);
       const category = str(payload.category);
@@ -241,7 +244,7 @@ export const handleM1 = async (request: Request, deps: M1Deps): Promise<Response
 
     const depreciate = /^\/api\/m1\/assets\/([^/]+)\/depreciate$/.exec(path);
     if (depreciate && method === 'POST') {
-      const context = guarded(5);
+      const context = await guarded(5);
       if (context instanceof Response) return context;
       const payload = await body(request);
       return json(
@@ -255,7 +258,7 @@ export const handleM1 = async (request: Request, deps: M1Deps): Promise<Response
 
     // --------------------------------------------------------------- loans
     if (path === '/api/m1/loans' && method === 'POST') {
-      const context = guarded(5);
+      const context = await guarded(5);
       if (context instanceof Response) return context;
       const payload = await body(request);
       return json(
@@ -273,14 +276,14 @@ export const handleM1 = async (request: Request, deps: M1Deps): Promise<Response
 
     const loanInstallments = /^\/api\/m1\/loans\/([^/]+)\/installments$/.exec(path);
     if (loanInstallments && method === 'GET') {
-      const context = guarded(2);
+      const context = await guarded(2);
       if (context instanceof Response) return context;
       return json({ installments: await service.loanInstallments(context, loanInstallments[1] ?? '') });
     }
 
     // --------------------------------------------------------- procurement
     if (path === '/api/m1/purchase-orders' && method === 'POST') {
-      const context = guarded(4);
+      const context = await guarded(4);
       if (context instanceof Response) return context;
       const payload = await body(request);
       const lines = Array.isArray(payload.lines) ? payload.lines : [];
@@ -306,7 +309,7 @@ export const handleM1 = async (request: Request, deps: M1Deps): Promise<Response
     }
 
     if (path === '/api/m1/supplier-bills' && method === 'POST') {
-      const context = guarded(4);
+      const context = await guarded(4);
       if (context instanceof Response) return context;
       const payload = await body(request);
       const lines = Array.isArray(payload.lines) ? payload.lines : [];
@@ -328,21 +331,21 @@ export const handleM1 = async (request: Request, deps: M1Deps): Promise<Response
 
     const billMatch = /^\/api\/m1\/supplier-bills\/([^/]+)\/match$/.exec(path);
     if (billMatch && method === 'POST') {
-      const context = guarded(4);
+      const context = await guarded(4);
       if (context instanceof Response) return context;
       return json(await service.matchSupplierBill(context, billMatch[1] ?? ''));
     }
 
     const billApprove = /^\/api\/m1\/supplier-bills\/([^/]+)\/approve$/.exec(path);
     if (billApprove && method === 'POST') {
-      const context = guarded(5);
+      const context = await guarded(5);
       if (context instanceof Response) return context;
       return json(await service.approveSupplierBill(context, billApprove[1] ?? ''));
     }
 
     // ------------------------------------------------------------ treasury
     if (path === '/api/m1/bank-reconciliations' && method === 'POST') {
-      const context = guarded(4);
+      const context = await guarded(4);
       if (context instanceof Response) return context;
       const payload = await body(request);
       const statement = Array.isArray(payload.statement) ? payload.statement : [];
@@ -367,7 +370,7 @@ export const handleM1 = async (request: Request, deps: M1Deps): Promise<Response
     }
 
     if (path === '/api/m1/cash-closings' && method === 'POST') {
-      const context = guarded(4);
+      const context = await guarded(4);
       if (context instanceof Response) return context;
       const payload = await body(request);
       return json(

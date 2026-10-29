@@ -169,6 +169,27 @@ describeDb('postgres adapter', () => {
     expect(both.map((row) => row.plant_id).sort()).toEqual(['PLT-0001', 'PLT-0002']);
   });
 
+  dbTest('RLS rejects a write to a plant outside the assigned scope', async () => {
+    const invoiceNo = `XPLANT-${crypto.randomUUID().slice(0, 6)}`;
+
+    await expect(
+      asCompany('CMP-0001', ['PLT-0001'], async (tx) => {
+        const customers = await tx.unsafe<{ id: string }>(`select id from customers limit 1`);
+        await tx.unsafe(
+          `insert into invoices (id, company_id, plant_id, customer_id, invoice_no, issue_date, due_date,
+             subtotal, tax_percent, tax_amount, grand_total, status)
+           values ($1,'CMP-0001','PLT-0002',$2,$3, current_date, current_date, 100, 14, 14, 114, 'draft')`,
+          [`XPL-${crypto.randomUUID().slice(0, 6)}`, customers[0]?.id, invoiceNo],
+        );
+      }),
+    ).rejects.toThrow(/row-level security|violates/);
+
+    const leftovers = await asCompany('CMP-0001', ['PLT-0001', 'PLT-0002'], async (tx) =>
+      tx.unsafe(`select id from invoices where invoice_no = $1`, [invoiceNo]),
+    );
+    expect(leftovers).toHaveLength(0);
+  });
+
   dbTest('the database rejects an unbalanced entry at COMMIT', async () => {
     await expect(
       asCompany('CMP-0001', [], async (tx) => {

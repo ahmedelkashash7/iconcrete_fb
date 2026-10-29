@@ -16,6 +16,7 @@
     "db:seed": "bun run scripts/db.ts seed",
     "db:reset": "bun run scripts/db.ts reset",
     "db:status": "bun run scripts/db.ts status",
+    "db:role": "bun run scripts/db.ts role",
     "test:excel": "python3 -m pytest excel_generator/tests -q",
     "excel": "python3 excel_generator/generate_workbook.py"
   },

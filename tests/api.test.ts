@@ -3,6 +3,7 @@ import { createApp, type App } from '../server/index';
 import type { AppEnv } from '../server/store';
 
 const env: AppEnv = {
+  environment: 'development',
   adminPassword: 'Demo@2026',
   idleMinutes: 30,
   maxFailedLogins: 5,

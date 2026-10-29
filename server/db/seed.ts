@@ -152,7 +152,42 @@ export const seedDemo = async (db: Db): Promise<SeedResult> => {
 
   const companyIds = [dataset.company.id, SECOND_COMPANY.id];
   await db.transaction(async (tx) => {
+    // audit_log is append-only for the application role; seeding is a maintenance
+    // operation that explicitly opts into purging its own demo rows. Posted journal
+    // entries are likewise immutable except for this transaction-scoped reset flag.
+    await tx.unsafe(`select set_config('app.audit_purge', 'on', true)`);
+    await tx.unsafe(`select set_config('app.seed_reset', 'on', true)`);
+
+    // Every table that points at a journal entry must release it before the entry can
+    // be removed (FK), for this company only. Discovered from the catalog so a future
+    // migration that adds another link cannot silently break the reset.
+    const quoteIdent = (name: string): string => `"${name.replace(/"/g, '""')}"`;
+    const journalLinks = await tx.unsafe<{ tbl: string; col: string; has_company: boolean }>(
+      `select c.conrelid::regclass::text as tbl,
+              a.attname as col,
+              exists (
+                select 1 from information_schema.columns ic
+                 where ic.table_schema = 'public'
+                   and ic.table_name = c.conrelid::regclass::text
+                   and ic.column_name = 'company_id'
+              ) as has_company
+         from pg_constraint c
+         join pg_attribute a on a.attrelid = c.conrelid and a.attnum = c.conkey[1]
+        where c.contype = 'f'
+          and c.confrelid = 'journal_entries'::regclass
+          and array_length(c.conkey, 1) = 1
+          -- journal_entry_lines.entry_id is NOT NULL and is deleted explicitly below.
+          and a.attnotnull = false`,
+    );
+
     for (const companyId of companyIds) {
+      for (const link of journalLinks) {
+        const where = link.has_company ? 'where company_id = $1' : '';
+        await tx.unsafe(
+          `update ${quoteIdent(link.tbl)} set ${quoteIdent(link.col)} = null ${where}`,
+          link.has_company ? [companyId] : [],
+        );
+      }
       await tx.unsafe(`delete from payment_allocations where company_id = $1`, [companyId]);
       await tx.unsafe(`delete from payments where company_id = $1`, [companyId]);
       await tx.unsafe(`delete from journal_entry_lines where company_id = $1`, [companyId]);
@@ -189,6 +224,12 @@ export const seedDemo = async (db: Db): Promise<SeedResult> => {
       await tx.unsafe(`delete from audit_log where company_id = $1`, [companyId]);
       await tx.unsafe(`delete from sessions where company_id = $1`, [companyId]);
       await tx.unsafe(`delete from user_roles where company_id = $1`, [companyId]);
+      await tx.unsafe(
+        `delete from role_permissions
+          where company_id = $1 or role_id in (select id from roles where company_id = $1)`,
+        [companyId],
+      );
+      await tx.unsafe(`delete from roles where company_id = $1`, [companyId]);
       await tx.unsafe(`delete from customers where company_id = $1`, [companyId]);
       await tx.unsafe(`delete from suppliers where company_id = $1`, [companyId]);
       await tx.unsafe(`delete from gl_accounts where company_id = $1`, [companyId]);
