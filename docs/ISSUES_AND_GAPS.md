@@ -39,3 +39,23 @@ the fix is. Nothing here is hidden from the phase reports.
 - Egyptian Code compliance, 2FA, live GPS, PLC/SCADA, weighbridge, WhatsApp/SMS delivery,
   predictive AI, offline sync and commercial multi-tenant hosting are **NOT IMPLEMENTED**.
 - No deployment has been performed, so no availability, latency or recovery target is claimed.
+
+## Status update after the verification revision
+
+The table above is the historical record; this section states what changed and what did not.
+
+- **G1 (durable staged imports): CLOSED.** Staged results, checksums and lifecycle now live
+  in `staged_imports`; committed rows in `import_records`; discard is explicit and audited;
+  another tenant cannot read or commit a staged id. Covered by `tests/m1/import.durable.test.ts`.
+- **G2 (database read models): PARTIALLY CLOSED.** `/api/dashboard`, `/api/reports/*`,
+  `/api/export/*`, `/api/customers` and `/api/customers.xlsx` now read PostgreSQL under RLS.
+  `/api/users` and `/api/plants` still serve the demo dataset and keep the
+  `403 tenant_data_unavailable` guard for other tenants.
+- **G17 (new):** postgres-mode read models return empty arrays for modules without tables
+  (batches, trips, quality, inventory, payroll, rentals, utilities, maintenance), so those
+  dashboard cards read zero rather than demo numbers.
+- **G18 (new):** import commit writes domain rows only for `customers` (plus its credit
+  limit); the other six templates persist to `import_records` and wait for their tables.
+- **G5 (backup/restore):** the repository now has a tested bundle/archive/restore procedure
+  (`docs/BACKUP_AND_RESTORE.md`). A database dump/restore drill is still missing.
+- **G6 (no browser) and G7 (no remote) are unchanged.**

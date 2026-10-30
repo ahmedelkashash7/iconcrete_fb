@@ -11,6 +11,8 @@
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
+    "verify": "bash scripts/verify.sh",
+    "schema:docs": "bun run scripts/schema-docs.ts",
     "test:db": "bun test tests/m1/postgres.integration.test.ts",
     "db:migrate": "bun run scripts/db.ts migrate",
     "db:seed": "bun run scripts/db.ts seed",

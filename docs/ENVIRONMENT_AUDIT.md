@@ -71,3 +71,16 @@ bun run db:migrate && bun run db:seed
    browser level (HTTP/`createApp` and unit tests only).
 4. The Cloud sandbox has **no system package installation persistence**; anything installed
    outside the workspace must be re-created.
+
+## Reproducible verification
+
+`bash scripts/verify.sh` provisions its own PostgreSQL 16 from `pgserver` inside `.verify/`
+(test tooling only, never a project dependency), applies all migrations, seeds, then runs
+install → typecheck → full test suite → build → pytest → workbook generator. It fails if any
+test is skipped, if the fail count is not zero, or if the PostgreSQL suites are missing from
+the output — a zero skip count alone could also mean a suite disappeared.
+
+Clean-extraction proof: the repository is archived from Git (tracked files only, no
+`node_modules`, `.venv`, `.verify` or `dist`), restored into a fresh directory and verified
+there with the same script. Results and artifact hashes are recorded in
+`docs/VERIFICATION_RECORD.md`.

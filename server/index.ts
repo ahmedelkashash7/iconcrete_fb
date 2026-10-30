@@ -18,6 +18,8 @@ import {
   type SafeUser,
 } from './auth';
 import { PgAuthRepository } from './db/authRepo';
+import { PgImportRepository } from './db/importRepo';
+import { loadDatasetForTenant } from './db/datasetRepo';
 import { buildErrorWorkbook, buildTemplateWorkbook, parseUpload } from './excel';
 import { buildCustomersWorkbook, buildReportWorkbook } from './export';
 import { buildReport, monthlySeries, REPORT_TYPES, type ReportType } from '../src/core/reports';
@@ -29,7 +31,7 @@ import { canExportReports } from '../src/core/rbac';
 import { createDb, type Db } from './db/client';
 import { readStorageSettings, type StorageMode, type StorageSettings } from './db/mode';
 import { handleM1, postgresRequired } from './api/m1';
-import type { Customer, InventoryItem, Lang, Material, RoleLevel } from '../src/types';
+import type { Customer, DemoDataset, InventoryItem, Lang, Material, RoleLevel } from '../src/types';
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
 const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -85,6 +87,7 @@ export const createApp = async (
   const db = await createDb({ mode: storage.mode, databaseUrl: storage.databaseUrl });
   // Durable sessions and audit in postgres mode; the in-memory adapter stays demo/test-only.
   const authRepo = db ? new PgAuthRepository(db) : null;
+  const importRepo = db ? new PgImportRepository(db) : null;
   const store = await createStore(env);
   const captchas = new Map<string, Captcha>();
   const failedAttempts = new Map<string, number>();
@@ -191,10 +194,25 @@ export const createApp = async (
         })
       : null;
 
-  const customerRows = () =>
-    store.dataset.customers.map((customer) => {
-      const plant = store.dataset.plants.find((candidate) => candidate.id === customer.plant_id);
-      const outstanding = customerOutstanding(customer.id, store.dataset.invoices);
+  const tenantContext = (user: SafeUser) => ({
+    companyId: user.company_id,
+    plantIds: user.assigned_plant_ids ?? [],
+    userId: user.id,
+  });
+
+  /**
+   * Dashboard, reports and customer reads come from PostgreSQL under RLS when a database is
+   * configured. The demo dataset is only a fallback for demo/test mode.
+   */
+  const datasetFor = async (user: SafeUser): Promise<DemoDataset> => {
+    if (!db) return store.dataset;
+    return loadDatasetForTenant(db, tenantContext(user));
+  };
+
+  const customerRows = (dataset: DemoDataset) =>
+    dataset.customers.map((customer) => {
+      const plant = dataset.plants.find((candidate) => candidate.id === customer.plant_id);
+      const outstanding = customerOutstanding(customer.id, dataset.invoices);
       return {
         ...customer,
         plant_ar: plant?.name_ar ?? customer.plant_id,
@@ -225,6 +243,7 @@ export const createApp = async (
             rls: Boolean(db),
             durableSessions: Boolean(authRepo),
             durableAudit: Boolean(authRepo),
+            durableImports: Boolean(importRepo),
             authAdapter: authRepo ? 'postgres' : 'memory',
           },
           // Kept for Phase 1 clients that read this field.
@@ -343,12 +362,11 @@ export const createApp = async (
       if (path === '/api/dashboard' && method === 'GET') {
         const session = await sessionFor(request, 1);
         if (!session.ok) return session.response;
-        const scope = tenantDataGuard(session.user);
-        if (scope) return scope;
-        const kpis = computeKpis(store.dataset);
-        const balance = balanceFor(store.dataset);
+        const dataset = await datasetFor(session.user);
+        const kpis = computeKpis(dataset);
+        const balance = balanceFor(dataset);
         const restricted = session.roleLevel < 2;
-        const qualityTests = store.dataset.qualityTests
+        const qualityTests = dataset.qualityTests
           .slice()
           .sort((a, b) => (a.tested_at < b.tested_at ? 1 : -1))
           .slice(0, 8);
@@ -357,11 +375,11 @@ export const createApp = async (
           kpis,
           balance: restricted ? null : balance,
           balanceRestricted: restricted,
-          alerts: buildAlerts(store.dataset),
+          alerts: buildAlerts(dataset),
           qualityTests,
-          series: monthlySeries(store.dataset, 6),
-          company: { name_ar: store.dataset.company.name_ar, name_en: store.dataset.company.name_en },
-          plants: store.dataset.plants,
+          series: monthlySeries(dataset, 6),
+          company: { name_ar: dataset.company.name_ar, name_en: dataset.company.name_en },
+          plants: dataset.plants,
           generatedAt: new Date().toISOString(),
           storageMode: storage.mode,
         });
@@ -370,9 +388,8 @@ export const createApp = async (
       if (path === '/api/customers' && method === 'GET') {
         const session = await sessionFor(request, 4);
         if (!session.ok) return session.response;
-        const scope = tenantDataGuard(session.user);
-        if (scope) return scope;
-        return json({ customers: customerRows(), total: store.dataset.customers.length });
+        const dataset = await datasetFor(session.user);
+        return json({ customers: customerRows(dataset), total: dataset.customers.length });
       }
 
       if (path === '/api/plants' && method === 'GET') {
@@ -403,12 +420,11 @@ export const createApp = async (
       if (path.startsWith('/api/reports/') && method === 'GET') {
         const session = await sessionFor(request, 1);
         if (!session.ok) return session.response;
-        const scope = tenantDataGuard(session.user);
-        if (scope) return scope;
         const type = path.replace('/api/reports/', '') as ReportType;
         if (!REPORT_TYPES.includes(type)) return fail(404, 'not_found');
+        const dataset = await datasetFor(session.user);
         const range = defaultRange();
-        const report = buildReport(type, store.dataset, {
+        const report = buildReport(type, dataset, {
           from: url.searchParams.get('from') ?? range.from,
           to: url.searchParams.get('to') ?? range.to,
           ...(url.searchParams.get('customerId') ? { customerId: url.searchParams.get('customerId') ?? '' } : {}),
@@ -419,15 +435,14 @@ export const createApp = async (
       if (path.startsWith('/api/export/reports/') && method === 'GET') {
         const session = await sessionFor(request, 2);
         if (!session.ok) return session.response;
-        const scope = tenantDataGuard(session.user);
-        if (scope) return scope;
         if (!canExportReports(session.roleLevel)) return fail(403, 'forbidden');
         const type = path.replace('/api/export/reports/', '').replace(/\.xlsx$/, '') as ReportType;
         if (!REPORT_TYPES.includes(type)) return fail(404, 'not_found');
         const range = defaultRange();
         const from = url.searchParams.get('from') ?? range.from;
         const to = url.searchParams.get('to') ?? range.to;
-        const report = buildReport(type, store.dataset, {
+        const dataset = await datasetFor(session.user);
+        const report = buildReport(type, dataset, {
           from,
           to,
           ...(url.searchParams.get('customerId') ? { customerId: url.searchParams.get('customerId') ?? '' } : {}),
@@ -449,10 +464,9 @@ export const createApp = async (
       if (path === '/api/export/customers.xlsx' && method === 'GET') {
         const session = await sessionFor(request, 4);
         if (!session.ok) return session.response;
-        const scope = tenantDataGuard(session.user);
-        if (scope) return scope;
+        const dataset = await datasetFor(session.user);
         const lang = detectLang(request);
-        const rows = customerRows().map((row) => ({
+        const rows = customerRows(dataset).map((row) => ({
           id: row.id,
           nameAr: row.name_ar,
           nameEn: row.name_en,
@@ -560,6 +574,23 @@ export const createApp = async (
           importedRows: 0,
         });
 
+        // Durable staging (G1): the parsed result survives a restart and is tenant scoped.
+        if (importRepo) {
+          await importRepo.saveStaged(tenantContext(session.user), {
+            id: stagedId,
+            templateId: template.id,
+            templateVersion: template.version,
+            fileName: file.name,
+            checksum,
+            bytes: file.size,
+            result,
+            plantId:
+              session.user.assigned_plant_ids.length === 1
+                ? session.user.assigned_plant_ids[0] ?? null
+                : null,
+          });
+        }
+
         await audit({
           user_id: session.user.id,
           username: session.user.username,
@@ -625,6 +656,33 @@ export const createApp = async (
         const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
         const stagedId = String(body.stagedId ?? '');
         if (body.confirm !== true) return fail(400, 'confirmation_required');
+        if (importRepo) {
+          const outcome = await importRepo.commit(tenantContext(session.user), stagedId);
+          if (!outcome.ok) return fail(outcome.status, outcome.code);
+          await audit({
+            user_id: session.user.id,
+            username: session.user.username,
+            company_id: session.user.company_id,
+            action: 'excel.commit',
+            table_name: outcome.templateId,
+            record_id: stagedId,
+            ip_address: clientIp(request),
+            details: {
+              templateId: outcome.templateId,
+              fileName: outcome.fileName,
+              importedRows: outcome.importedRows,
+              skippedRows: outcome.skippedRows,
+              durable: true,
+            },
+          });
+          return json({
+            ok: true,
+            importedRows: outcome.importedRows,
+            skippedRows: outcome.skippedRows,
+            stagedId,
+            storage: 'postgres',
+          });
+        }
         const staged = store.staged.get(stagedId);
         if (!staged) return fail(404, 'not_found');
         if (staged.committed) return fail(409, 'already_committed');
@@ -731,13 +789,70 @@ export const createApp = async (
         });
       }
 
+      if (path === '/api/excel/discard' && method === 'POST') {
+        const session = await sessionFor(request, 4);
+        if (!session.ok) return session.response;
+        const scope = tenantDataGuard(session.user);
+        if (scope) return scope;
+        const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+        const stagedId = String(body.stagedId ?? '');
+        if (!stagedId) return fail(400, 'staged_id_required');
+
+        if (importRepo) {
+          const discarded = await importRepo.discard(tenantContext(session.user), stagedId);
+          if (!discarded) return fail(409, 'not_discardable');
+        } else {
+          const staged = store.staged.get(stagedId);
+          if (!staged) return fail(404, 'not_found');
+          if (staged.committed) return fail(409, 'already_committed');
+          store.staged.delete(stagedId);
+        }
+
+        await audit({
+          user_id: session.user.id,
+          username: session.user.username,
+          company_id: session.user.company_id,
+          action: 'excel.discard',
+          table_name: 'excel_imports',
+          record_id: stagedId,
+          ip_address: clientIp(request),
+          details: { durable: Boolean(importRepo) },
+        });
+        return json({ ok: true, stagedId });
+      }
+
+      if (path === '/api/excel/staged' && method === 'GET') {
+        const session = await sessionFor(request, 4);
+        if (!session.ok) return session.response;
+        const scope = tenantDataGuard(session.user);
+        if (scope) return scope;
+        if (!importRepo) {
+          return json({
+            staged: [...store.staged.values()].map((staged) => ({
+              id: staged.id,
+              templateId: staged.templateId,
+              fileName: staged.fileName,
+              committed: staged.committed,
+              importedRows: staged.importedRows,
+              createdAt: staged.createdAt,
+            })),
+            storage: 'memory',
+          });
+        }
+        const staged = await importRepo.listStaged(tenantContext(session.user));
+        return json({ staged, storage: 'postgres' });
+      }
+
       if (path.startsWith('/api/excel/errors/') && path.endsWith('.xlsx') && method === 'GET') {
         const session = await sessionFor(request, 4);
         if (!session.ok) return session.response;
         const scope = tenantDataGuard(session.user);
         if (scope) return scope;
         const stagedId = path.replace('/api/excel/errors/', '').replace(/\.xlsx$/, '');
-        const staged = store.staged.get(stagedId);
+        const durable = importRepo
+          ? await importRepo.getStaged(tenantContext(session.user), stagedId)
+          : null;
+        const staged = durable ?? store.staged.get(stagedId) ?? null;
         if (!staged) return fail(404, 'not_found');
         const template = templateById(staged.templateId);
         if (!template) return fail(400, 'invalid_template');

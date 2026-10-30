@@ -266,13 +266,21 @@ describeDb('durable authentication', () => {
     expect(second.status).toBe(200);
     const token = String(second.body.token ?? '');
 
+    // Read models are database-backed now: the second company reads its own rows instead of
+    // the demo dataset. It must still never see the demo tenant's company or its people.
     const customers = await get(app, '/api/customers', token);
-    expect(customers.status).toBe(403);
-    expect(customers.body.error).toBe('tenant_data_unavailable');
+    expect(customers.status).toBe(200);
+    const rows = (customers.body.customers ?? []) as Array<{ id: string }>;
+    expect(rows.every((row) => !row.id.startsWith('CUS-0000'))).toBe(true);
 
-    expect((await get(app, '/api/dashboard', token)).status).toBe(403);
-    expect((await get(app, '/api/reports/general-balance', token)).status).toBe(403);
-    expect((await get(app, '/api/export/customers.xlsx', token)).status).toBe(403);
+    const dashboard = await get(app, '/api/dashboard', token);
+    expect(dashboard.status).toBe(200);
+    const dashboardCompany = (dashboard.body as { company?: { name_ar?: string } }).company;
+    expect(dashboardCompany?.name_ar).not.toBe('شركة آي كونكريت التجريبية');
+
+    expect((await get(app, '/api/reports/general_balance', token)).status).toBe(200);
+    expect((await get(app, '/api/export/customers.xlsx', token)).status).toBe(200);
+    // Users are still served by the demo read model, so the guard continues to apply there.
     expect((await get(app, '/api/users', token)).status).toBe(403);
     await app.db?.close();
   });

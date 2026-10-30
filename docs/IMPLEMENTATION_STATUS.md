@@ -18,9 +18,9 @@ test or command that was actually executed at commit `5f90ccc`.
 | Login/session/audit (postgres adapter) | IMPLEMENTED AND VERIFIED | `server/auth.ts`, `db/migrations/0006`, `tests/m1/auth.durable.test.ts` |
 | Tenant isolation (RLS) | IMPLEMENTED AND VERIFIED | `db/migrations/0003`, `tests/m1/postgres.integration.test.ts` |
 | Durable audit + append-only | IMPLEMENTED AND VERIFIED | `0006`, `auth.durable.test.ts` |
-| Dashboard (derived KPIs, balance, alerts, charts) | IMPLEMENTED AND VERIFIED for the demo dataset | `src/core/metrics.ts`, `tests/seed.test.ts`; not database-backed |
-| Reports (7 types, filters, print, xlsx) | IMPLEMENTED AND VERIFIED | `src/core/reports.ts`, `tests/seed.test.ts`, `tests/api.test.ts` |
-| Excel Integration Center (upload→preview→validate→commit→audit) | IMPLEMENTED AND VERIFIED | `server/index.ts`, `src/core/validation.ts`, `tests/api.test.ts`, `tests/validation.test.ts` |
+| Dashboard (derived KPIs, balance, alerts, charts) | IMPLEMENTED AND VERIFIED | database-backed under RLS in postgres mode (`server/db/datasetRepo.ts`), demo dataset in demo/test mode; `tests/m1/dataset.readmodel.test.ts` |
+| Reports (7 types, filters, print, xlsx) | IMPLEMENTED AND VERIFIED | `src/core/reports.ts`; database-backed read model in postgres mode; `tests/seed.test.ts`, `tests/api.test.ts`, `tests/m1/dataset.readmodel.test.ts` |
+| Excel Integration Center (upload→preview→validate→commit→discard→audit) | IMPLEMENTED AND VERIFIED | `server/index.ts`, `server/db/importRepo.ts`, `src/core/validation.ts`; durable staging tested in `tests/m1/import.durable.test.ts` |
 | Portable Excel generator (15 sheets, charts) | IMPLEMENTED AND VERIFIED | `excel_generator/`, 28 pytest tests, generation command exit 0 |
 
 ## Business modules (spec §2)
@@ -73,3 +73,34 @@ test or command that was actually executed at commit `5f90ccc`.
 | 13 | Tests executed and recorded | 140 TS + 28 Python executed at `5f90ccc` |
 | 14 | Known issues documented | `docs/ISSUES_AND_GAPS.md` |
 | 15 | No later-phase feature presented as operational | enforced by this matrix |
+
+## Gap closure (revision after review)
+
+| Item | Status | Evidence |
+|---|---|---|
+| G1 durable staged imports | IMPLEMENTED AND VERIFIED | `db/migrations/0008_m1_durable_imports.sql`, `server/db/importRepo.ts`, `tests/m1/import.durable.test.ts`: survives a new connection, commits into `import_records` + `customers` + credit limit, refuses a second commit, discards explicitly, denies another tenant |
+| G2 database-backed dashboard/reports | IMPLEMENTED AND VERIFIED for dashboard, all reports, customer list and both exports | `server/db/datasetRepo.ts` wired in `server/index.ts`; `tests/m1/dataset.readmodel.test.ts` proves company and plant isolation against the restricted role |
+| G2 remainder (plants, users, excel-audit feed) | NOT IMPLEMENTED — still demo read models behind the 403 guard | recorded in `docs/ISSUES_AND_GAPS.md` |
+| Data dictionary generated from schema | IMPLEMENTED AND VERIFIED | `scripts/schema-docs.ts`; `tests/m1/data-dictionary.test.ts` renders the schema again and fails on any drift |
+| Reproducible verification | IMPLEMENTED AND VERIFIED | `scripts/verify.sh`: own PostgreSQL, migrations, seed, 0 skips enforced, build, pytest, generator |
+
+Database-backed read models currently cover: company, plants, customers + credit limits,
+suppliers, invoices + payment allocations, supplier bills, cash, bank accounts and
+transactions, cheques, fixed assets, loans and installment schedules.
+
+Still empty in postgres mode because no tables exist: materials/inventory, batches, trucks,
+trips, quality tests, salary payments, rentals, utilities, maintenance. KPI cards that depend
+on them show zero — deliberately, instead of demo numbers.
+
+## UI verification limits
+
+| Claim | Verified how | Not verified |
+|---|---|---|
+| Arabic is the default language | i18n tests, API `lang` handling, `dir` attribute in source | rendered Arabic typography |
+| RTL direction is applied | `dir="rtl"` in the shell and `[dir]` CSS rules | bidi ordering inside tables, mixed Arabic/Latin numerals |
+| Bilingual key parity | `tests/i18n.test.ts` | truncation of long Arabic labels |
+| Report export layout | XLSX generation tests + HTTP 200 | print preview, pagination |
+| Responsive layout | CSS review only | any viewport |
+
+No browser automation exists in this environment, so **no visual RTL, font, print or mobile
+check has been performed**. The honest status for "visual RTL rendering" is NOT TESTED.
