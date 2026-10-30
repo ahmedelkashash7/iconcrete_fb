@@ -1,0 +1,65 @@
+# Verification record — 2026-10-30
+
+Produced by real commands in this environment. Nothing below is estimated.
+
+## Environment
+
+| Item | Value |
+|---|---|
+| Kernel | Linux 6.1.102 x86_64 |
+| Bun / Node / Python | 1.3.14 / v24.21.0 / 3.12.3 |
+| PostgreSQL | 16.2, provisioned per run by `pgserver` inside `.verify/` (throwaway, trust auth, not a project dependency) |
+| Browser automation | none available |
+
+## `bash scripts/verify.sh` — workspace run
+
+| Step | Result |
+|---|---|
+| `bun install --frozen-lockfile` | 258 installs, no changes |
+| migrations | 8 applied (`0001`–`0008`) |
+| seed | 2 companies, 3 plants, 6 users, 46 accounts, 26 customers, 57 invoices, 34 payments, 92 journal entries, 14 cheques, 10 assets, 3 loans |
+| typecheck | PASS |
+| `bun test` | **150 pass, 0 fail, 0 skip** — 15 files, 2016 `expect()` calls |
+| build | PASS (existing >500 kB chunk warning) |
+| pytest | **28 passed** |
+| generator | exit 0 — 15 RTL sheets, 3 charts, 12/12 seeded scenarios, 53,710 bytes |
+
+Script summary line: `pass=150 fail=0 skip=0 typecheck/build/pytest/generator=ok`.
+
+The script fails when the skip count is non-zero **and** requires the markers
+`durable staged imports`, `database-backed read models` and `postgres adapter` in the output,
+so a vanished suite cannot masquerade as "zero skips".
+
+## Clean extraction (independent of this workspace)
+
+1. `git bundle verify` → "The bundle records a complete history."
+2. `git clone <bundle> /tmp/iconcrete-restore/repo` → HEAD `9acf09c`.
+3. Confirmed no `node_modules`, `.venv`, `.verify` or `dist` in the clone.
+4. `bash scripts/verify.sh` → same counts: **150 pass, 0 fail, 0 skip**, build PASS,
+   pytest 28 passed, generator 12/12; exit code 0.
+5. `git archive` extraction: 123 tracked files in the commit, 123 files extracted.
+
+## Generated data dictionary
+
+`bun run schema:docs` → `docs/DATA_DICTIONARY.md`:
+
+- **1,370 lines**
+- **46 base tables**, **644 columns**, **257 constraints** (primary key, unique, foreign key, check)
+- one section per table with type, nullability and default for every column
+
+`tests/m1/data-dictionary.test.ts` re-renders the schema and compares the whole file, so a
+schema change without regeneration fails the suite.
+
+## Artifacts
+
+`artifacts/IConcrete-<commit>.bundle` and `artifacts/IConcrete-<commit>.tar.gz` are generated
+from the final commit; hashes are in `artifacts/SHA256SUMS` (untracked, never committed) and
+are reported in the conversation. The clean-extraction run above used the bundle of the
+preceding commit `9acf09c`, whose code is identical — this record adds documentation only.
+
+## NOT TESTED
+
+- Visual Arabic/RTL rendering, fonts, bidi in tables, print preview, mobile layout (no browser).
+- PostgreSQL `pg_dump`/restore drill and any recovery-time measurement.
+- GitHub push (no authenticated remote).
+- Modules M2–M4; no phase beyond M1 was started.

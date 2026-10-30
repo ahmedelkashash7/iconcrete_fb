@@ -1,7 +1,7 @@
 # Data model (as implemented)
 
 Source of truth for the schema is `db/migrations/*.sql`. This file describes the model
-those files actually create — 48 tables at migration `0007`. It does not describe planned
+those files actually create — 46 base tables at migration `0008`. It does not describe planned
 tables, except where explicitly marked `NOT IMPLEMENTED`.
 
 ## Organizational scope
