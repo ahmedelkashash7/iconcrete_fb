@@ -220,6 +220,7 @@ export const seedDemo = async (db: Db): Promise<SeedResult> => {
       await tx.unsafe(`delete from deposits where company_id = $1`, [companyId]);
       await tx.unsafe(`delete from retentions where company_id = $1`, [companyId]);
       await tx.unsafe(`delete from import_records where company_id = $1`, [companyId]);
+      await tx.unsafe(`delete from csv_staging where company_id = $1`, [companyId]);
       await tx.unsafe(`delete from staged_imports where company_id = $1`, [companyId]);
       await tx.unsafe(`delete from audit_log where company_id = $1`, [companyId]);
       await tx.unsafe(`delete from sessions where company_id = $1`, [companyId]);

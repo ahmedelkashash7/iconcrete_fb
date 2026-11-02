@@ -27,7 +27,7 @@ export interface B1Deps {
   ) => Promise<{ ok: true; user: SafeUser } | { ok: false; response: Response }>;
 }
 
-const contextFor = (user: SafeUser, request: Request): B1Context => ({
+export const contextFor = (user: SafeUser, request: Request): B1Context => ({
   tenant: {
     companyId: user.company_id,
     plantIds: user.assigned_plant_ids,

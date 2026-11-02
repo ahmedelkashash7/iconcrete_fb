@@ -139,6 +139,10 @@ describe('route and navigation smoke', () => {
   });
 
   test('report, staged-import and error-report routes answer, unknown paths do not', async () => {
+    expect([401, 503]).toContain(await status('/api/csv/upload', 'POST'));
+    expect([401, 503]).toContain(await status('/api/csv/commit/CSV-0001', 'POST'));
+    expect([401, 503]).toContain(await status('/api/csv/errors/CSV-0001.csv'));
+    expect([401, 503]).toContain(await status('/api/csv/staging/CSV-0001/reject', 'POST'));
     expect(await status('/api/reports/general_balance')).toBe(401);
     expect(await status('/api/excel/staged')).toBe(401);
     expect(await status('/api/excel/errors/STG-0001.csv')).toBe(401);

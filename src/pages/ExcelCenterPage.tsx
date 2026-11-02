@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { apiFetch, ApiError, downloadFile } from '../api';
 import { Badge, Card, DataTable, ErrorNote, InfoNote, LoadingBlock, SectionTitle } from '../components/ui';
+import { CsvUploadWizard } from '../components/CsvUploadWizard';
 import type { TemplateColumn, ValidationResult } from '../core/validation';
 import { formatDateTime } from '../lib/display';
 import type { AuditEntry, Lang } from '../types';
@@ -232,6 +233,8 @@ export const ExcelCenterPage = () => {
         subtitle={t('excel.subtitle')}
         badge={<Badge tone="purple">{t('excel.step1')} · {t('excel.step2')}</Badge>}
       />
+
+      <CsvUploadWizard />
 
       <div className="steps">
         {[t('excel.step1'), t('excel.step2'), t('excel.step3'), t('excel.step4')].map((label, index) => (
