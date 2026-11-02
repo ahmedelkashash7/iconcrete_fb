@@ -165,9 +165,20 @@ describe('ICONCRETE API', () => {
     const token = await adminToken();
     const report = await call('/api/reports/customer_statement?from=2020-01-01&to=2030-12-31', { headers: auth(token) });
     expect(report.status).toBe(200);
-    const reportBody = (await report.json()) as { canExport: boolean; report: { rows: unknown[]; columns: unknown[] } };
+    const reportBody = (await report.json()) as {
+      canExport: boolean;
+      report: { rows: unknown[]; columns: unknown[] };
+      generatedAt?: string;
+      dataSource?: { mode?: string; adapter?: string; report?: string; filters?: Record<string, string> };
+    };
     expect(reportBody.canExport).toBe(true);
     expect(reportBody.report.columns.length).toBeGreaterThan(0);
+    // Gap A5: the report must declare where its numbers came from, and which filters ran.
+    expect(reportBody.dataSource?.mode).toBe('demo');
+    expect(reportBody.dataSource?.adapter).toBe('memory');
+    expect(reportBody.dataSource?.report).toBe('customer_statement');
+    expect(reportBody.dataSource?.filters).toMatchObject({ from: '2020-01-01', to: '2030-12-31' });
+    expect(typeof reportBody.generatedAt).toBe('string');
 
     const exported = await call('/api/export/reports/general_balance?from=2026-01-01&to=2026-12-31&lang=ar', {
       headers: auth(token),
