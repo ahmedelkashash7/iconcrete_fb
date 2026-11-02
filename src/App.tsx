@@ -6,6 +6,8 @@ import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { CustomersPage } from './pages/CustomersPage';
+import { ProjectsPage } from './pages/ProjectsPage';
+import { OrdersPage } from './pages/OrdersPage';
 import { InvoicesPage, LedgerPage, PaymentsPage, StatementPage } from './pages/LedgerPages';
 import { ExcelCenterPage } from './pages/ExcelCenterPage';
 import { AuditPage, PlantsPage, SettingsPage, UsersPage } from './pages/StructurePages';
@@ -69,6 +71,10 @@ export const App = () => {
         <ReportsPage />
       ) : page === 'customers' ? (
         <CustomersPage />
+      ) : page === 'projects' ? (
+        <ProjectsPage />
+      ) : page === 'orders' ? (
+        <OrdersPage />
       ) : page === 'invoices' ? (
         <InvoicesPage />
       ) : page === 'payments' ? (

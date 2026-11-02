@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { apiFetch, ApiError, downloadFile } from '../api';
 import { Badge, Card, DataTable, ErrorNote, InfoNote, LoadingBlock, SectionTitle, type BadgeTone } from '../components/ui';
@@ -18,6 +18,32 @@ const statusTone: Record<string, BadgeTone> = {
   archived: 'neutral',
 };
 
+interface CustomerForm {
+  nameAr: string;
+  nameEn: string;
+  taxId: string;
+  phone: string;
+  email: string;
+  address: string;
+  priorityTier: 'A' | 'B' | 'C';
+  creditDays: string;
+  creditLimitEgp: string;
+  status: 'active' | 'suspended' | 'archived';
+}
+
+const emptyForm: CustomerForm = {
+  nameAr: '',
+  nameEn: '',
+  taxId: '',
+  phone: '',
+  email: '',
+  address: '',
+  priorityTier: 'A',
+  creditDays: '30',
+  creditLimitEgp: '0',
+  status: 'active',
+};
+
 export const CustomersPage = () => {
   const { t, i18n } = useTranslation();
   const lang: Lang = i18n.language === 'en' ? 'en' : 'ar';
@@ -26,24 +52,28 @@ export const CustomersPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState<CustomerForm>(emptyForm);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await apiFetch<{ customers: CustomerRow[] }>('/api/customers');
+      setRows(response.customers);
+    } catch (caught) {
+      setError(caught instanceof ApiError && caught.status === 403 ? 'errors.forbidden' : 'errors.network');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    let active = true;
-    apiFetch<{ customers: CustomerRow[] }>('/api/customers')
-      .then((response) => {
-        if (active) setRows(response.customers);
-      })
-      .catch((caught) => {
-        if (!active) return;
-        setError(caught instanceof ApiError && caught.status === 403 ? 'errors.forbidden' : 'errors.network');
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
+    void load();
+  }, [load]);
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -66,6 +96,70 @@ export const CustomersPage = () => {
     }
   };
 
+  const openCreate = () => {
+    setEditingId(null);
+    setForm(emptyForm);
+    setFormError(null);
+    setFormOpen(true);
+  };
+
+  const openEdit = (row: CustomerRow) => {
+    setEditingId(row.id);
+    setForm({
+      nameAr: row.name_ar,
+      nameEn: row.name_en,
+      taxId: row.tax_id,
+      phone: row.phone,
+      email: row.email,
+      address: row.address,
+      priorityTier: row.priority_tier,
+      creditDays: String(row.credit_days),
+      creditLimitEgp: String(row.credit_limit_egp),
+      status: row.status,
+    });
+    setFormError(null);
+    setFormOpen(true);
+  };
+
+  const save = async () => {
+    if (!form.nameAr.trim() || !form.nameEn.trim()) {
+      setFormError('customers.requiredFields');
+      return;
+    }
+    setSaving(true);
+    setFormError(null);
+    try {
+      const payload = {
+        nameAr: form.nameAr,
+        nameEn: form.nameEn,
+        taxId: form.taxId,
+        phone: form.phone,
+        email: form.email,
+        address: form.address,
+        priorityTier: form.priorityTier,
+        creditDays: Number(form.creditDays || 0),
+        creditLimitEgp: form.creditLimitEgp || '0',
+        ...(editingId ? { status: form.status } : {}),
+      };
+      if (editingId) {
+        await apiFetch(`/api/m1/customers/${editingId}`, { method: 'PATCH', body: JSON.stringify(payload) });
+      } else {
+        await apiFetch('/api/m1/customers', { method: 'POST', body: JSON.stringify(payload) });
+      }
+      setFormOpen(false);
+      setEditingId(null);
+      setForm(emptyForm);
+      await load();
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.status === 503) setFormError('common.durableRequired');
+      else if (caught instanceof ApiError && caught.status === 403) setFormError('errors.forbidden');
+      else if (caught instanceof ApiError && caught.status === 422) setFormError('customers.requiredFields');
+      else setFormError('errors.network');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (loading) return <LoadingBlock label={t('common.loading')} />;
   if (error) return <ErrorNote>{t(error)}</ErrorNote>;
 
@@ -79,11 +173,108 @@ export const CustomersPage = () => {
 
       <Card
         actions={
-          <button type="button" className="btn btn--primary btn--sm" onClick={() => void exportExcel()} disabled={exporting}>
-            {t('customers.export')}
-          </button>
+          <div className="filters__actions">
+            <button type="button" className="btn btn--primary btn--sm" onClick={openCreate}>
+              {t('customers.create')}
+            </button>
+            <button type="button" className="btn btn--ghost btn--sm" onClick={() => void exportExcel()} disabled={exporting}>
+              {t('customers.export')}
+            </button>
+          </div>
         }
       >
+        {formOpen ? (
+          <div className="filters">
+            <p className="field field--grow">
+              <strong>{editingId ? t('customers.editTitle') : t('customers.newTitle')}</strong>
+            </p>
+            <label className="field field--grow">
+              <span>{t('common.name')} (AR)</span>
+              <input dir="rtl" value={form.nameAr} onChange={(event) => setForm({ ...form, nameAr: event.target.value })} />
+            </label>
+            <label className="field field--grow">
+              <span>{t('common.name')} (EN)</span>
+              <input dir="ltr" value={form.nameEn} onChange={(event) => setForm({ ...form, nameEn: event.target.value })} />
+            </label>
+            <label className="field">
+              <span>{t('customers.taxId')}</span>
+              <input value={form.taxId} onChange={(event) => setForm({ ...form, taxId: event.target.value })} />
+            </label>
+            <label className="field">
+              <span>{t('common.phone')}</span>
+              <input dir="ltr" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} />
+            </label>
+            <label className="field field--grow">
+              <span>{t('common.email')}</span>
+              <input dir="ltr" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} />
+            </label>
+            <label className="field field--grow">
+              <span>{t('customers.address')}</span>
+              <input value={form.address} onChange={(event) => setForm({ ...form, address: event.target.value })} />
+            </label>
+            <label className="field">
+              <span>{t('customers.tier')}</span>
+              <select
+                value={form.priorityTier}
+                onChange={(event) => setForm({ ...form, priorityTier: event.target.value as 'A' | 'B' | 'C' })}
+              >
+                <option value="A">A</option>
+                <option value="B">B</option>
+                <option value="C">C</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>{t('customers.creditLimit')}</span>
+              <input
+                dir="ltr"
+                inputMode="decimal"
+                value={form.creditLimitEgp}
+                onChange={(event) => setForm({ ...form, creditLimitEgp: event.target.value })}
+              />
+            </label>
+            <label className="field">
+              <span>{t('customers.creditDays')}</span>
+              <input
+                dir="ltr"
+                inputMode="numeric"
+                value={form.creditDays}
+                onChange={(event) => setForm({ ...form, creditDays: event.target.value })}
+              />
+            </label>
+            {editingId ? (
+              <label className="field">
+                <span>{t('common.status')}</span>
+                <select
+                  value={form.status}
+                  onChange={(event) => setForm({ ...form, status: event.target.value as CustomerForm['status'] })}
+                >
+                  <option value="active">{t('customers.status.active')}</option>
+                  <option value="suspended">{t('customers.status.suspended')}</option>
+                  <option value="archived">{t('customers.status.archived')}</option>
+                </select>
+              </label>
+            ) : null}
+            <div className="filters__actions">
+              <button type="button" className="btn btn--primary btn--sm" onClick={() => void save()} disabled={saving}>
+                {saving ? t('common.loading') : t('customers.save')}
+              </button>
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm"
+                onClick={() => {
+                  setFormOpen(false);
+                  setEditingId(null);
+                  setForm(emptyForm);
+                }}
+              >
+                {t('common.cancel')}
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {formError ? <ErrorNote>{t(formError)}</ErrorNote> : null}
+
         <div className="filters filters--compact">
           <label className="field field--grow">
             <span>{t('common.search')}</span>
@@ -145,6 +336,15 @@ export const CustomersPage = () => {
               render: (row) => <Badge tone={statusTone[row.status] ?? 'neutral'}>{t(`customers.status.${row.status}`)}</Badge>,
             },
             { key: 'phone', header: t('common.phone'), render: (row) => <span className="mono">{row.phone || '—'}</span> },
+            {
+              key: 'edit',
+              header: t('customers.edit'),
+              render: (row) => (
+                <button type="button" className="btn btn--ghost btn--sm" onClick={() => openEdit(row)}>
+                  {t('customers.edit')}
+                </button>
+              ),
+            },
           ]}
         />
         <InfoNote tone="info">{t('customers.note')}</InfoNote>

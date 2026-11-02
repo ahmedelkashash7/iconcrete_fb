@@ -41,6 +41,56 @@ export interface User {
   demo_password: string;
 }
 
+export interface Project {
+  id: string;
+  company_id: string;
+  plant_id: string;
+  customer_id: string;
+  customer_name_ar: string;
+  customer_name_en: string;
+  code: string;
+  name_ar: string;
+  name_en: string;
+  site_location: string;
+  status: string;
+  start_date: string;
+  end_date: string;
+  order_count: number;
+  created_at: string;
+}
+
+export type OrderStatus =
+  | 'draft'
+  | 'confirmed'
+  | 'scheduled'
+  | 'in_production'
+  | 'delivered'
+  | 'invoiced'
+  | 'closed';
+
+export interface Order {
+  id: string;
+  company_id: string;
+  plant_id: string;
+  customer_id: string;
+  customer_name_ar: string;
+  customer_name_en: string;
+  project_id: string;
+  project_code: string;
+  order_no: string;
+  concrete_grade: string;
+  /** Decimal strings: numeric in the database, never parsed into floats (spec §7). */
+  quantity_m3: string;
+  unit_price: string;
+  total_value: string;
+  delivery_date: string;
+  pour_window_start: string;
+  pour_window_end: string;
+  status: OrderStatus;
+  notes: string;
+  created_at: string;
+}
+
 export type CustomerStatus = 'active' | 'suspended' | 'archived';
 export type PriorityTier = 'A' | 'B' | 'C';
 

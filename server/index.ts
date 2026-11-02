@@ -34,6 +34,7 @@ import { canExportReports } from '../src/core/rbac';
 import { createDb, type Db } from './db/client';
 import { readStorageSettings, type StorageMode, type StorageSettings } from './db/mode';
 import { handleM1, postgresRequired } from './api/m1';
+import { handleB1 } from './api/b1';
 import type { Customer, DemoDataset, InventoryItem, Lang, Material, RoleLevel } from '../src/types';
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
@@ -1061,6 +1062,22 @@ export const createApp = async (
             .slice(0, limit),
           storage: 'memory',
         });
+      }
+
+      if (
+        path.startsWith('/api/projects') ||
+        path.startsWith('/api/orders') ||
+        (path === '/api/m1/customers' && method !== 'GET')
+      ) {
+        return (
+          (await handleB1(request, {
+            db,
+            auth: async (req, minLevel) => {
+              const session = await sessionFor(req, minLevel);
+              return session.ok ? { ok: true, user: session.user } : session;
+            },
+          })) ?? fail(404, 'not_found')
+        );
       }
 
       if (path.startsWith('/api/m1')) {
