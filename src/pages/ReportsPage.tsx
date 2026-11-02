@@ -16,6 +16,14 @@ interface CustomerOption {
 interface ReportResponse {
   report: ReportResult;
   canExport: boolean;
+  generatedAt: string;
+  dataSource: {
+    mode: 'postgres' | 'demo' | 'test';
+    adapter: 'postgres' | 'memory';
+    tables: string;
+    report: ReportType;
+    filters: { from: string; to: string; customerId: string };
+  };
 }
 
 export const ReportsPage = () => {
@@ -31,6 +39,7 @@ export const ReportsPage = () => {
   const [customers, setCustomers] = useState<CustomerOption[]>([]);
   const [report, setReport] = useState<ReportResult | null>(null);
   const [canExport, setCanExport] = useState(false);
+  const [source, setSource] = useState<{ mode: string; at: string; report: string; filters: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -57,6 +66,12 @@ export const ReportsPage = () => {
         if (!active) return;
         setReport(response.report);
         setCanExport(response.canExport);
+        setSource({
+          mode: response.dataSource.mode,
+          at: response.generatedAt,
+          report: response.dataSource.report,
+          filters: `${response.dataSource.filters.from} → ${response.dataSource.filters.to}`,
+        });
       })
       .catch((caught) => {
         if (!active) return;
@@ -200,6 +215,12 @@ export const ReportsPage = () => {
             <p className="muted small">
               {t('common.from')} {report.meta.from} — {t('common.to')} {report.meta.to}
             </p>
+            {source ? (
+              <p className="muted small" data-report-source={source.mode}>
+                {t('report.source')}: {t(`dashboard.source.${source.mode}`)} · {t('report.sourceFilters')}: {source.filters} ·{' '}
+                {t('report.generatedAt')} {source.at.slice(0, 19).replace('T', ' ')}
+              </p>
+            ) : null}
           </>
         ) : (
           <div className="empty-state">{t('report.empty')}</div>

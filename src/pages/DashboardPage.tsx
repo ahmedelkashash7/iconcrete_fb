@@ -5,6 +5,7 @@ import { Badge, Card, DataTable, ErrorNote, InfoNote, LoadingBlock, SectionTitle
 import { DonutChart, TrendLine } from '../components/charts';
 import { formatMoney, formatNumber, formatPercent } from '../core/money';
 import type { GeneralBalance } from '../core/balance';
+import { kpiStateLabelKey, kpiStateTone, KPI_LABEL_KEYS, type DataStatus } from '../core/availability';
 import type { DashboardAlert, DashboardKpis } from '../core/metrics';
 import type { PageKey } from '../core/rbac';
 import { formatCellValue, formatIsoDate } from '../lib/display';
@@ -20,6 +21,9 @@ interface DashboardResponse {
   company: { name_ar: string; name_en: string };
   plants: Array<{ id: string; name_ar: string; name_en: string; capacity_m3_per_hour: number }>;
   generatedAt: string;
+  storageMode: string;
+  dataSource: { mode: 'postgres' | 'demo' | 'test'; adapter: 'postgres' | 'memory'; tables: string };
+  kpiStates: Record<keyof DashboardKpis, { status: DataStatus; source: string; records: number | null; reason?: string }>;
 }
 
 const severityTone: Record<DashboardAlert['severity'], BadgeTone> = {
@@ -68,6 +72,33 @@ export const DashboardPage = ({ onNavigate }: { onNavigate: (page: PageKey) => v
         subtitle={t('dashboard.subtitle')}
         badge={<Badge tone="purple">{lang === 'ar' ? data.company.name_ar : data.company.name_en}</Badge>}
       />
+
+      <Card
+        title={t('dashboard.state.title')}
+        subtitle={t('dashboard.state.subtitle')}
+        actions={
+          <span className="muted small">
+            {t('dashboard.source')}: {t(`dashboard.source.${data.dataSource.mode}`)} · {t('dashboard.lastRefresh')}:{' '}
+            {formatIsoDate(data.generatedAt, lang)}
+          </span>
+        }
+      >
+        <ul className="state-list">
+          {(Object.keys(data.kpiStates) as Array<keyof DashboardKpis>).map((key) => {
+            const state = data.kpiStates[key];
+            return (
+              <li key={key} className={`state-item state-item--${state.status}`} data-kpi-state={state.status}>
+                <span>{t(KPI_LABEL_KEYS[key])}</span>
+                <Badge tone={kpiStateTone(state.status)}>{t(kpiStateLabelKey(state.status))}</Badge>
+                <span className="muted small">
+                  {state.records === null ? t('dashboard.state.noTable') : `${state.records}`}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+        <p className="muted small">{t('dashboard.state.legend')}</p>
+      </Card>
 
       <div className="kpi-grid">
         <StatCard label={t('dashboard.kpi.producedToday')} value={`${formatNumber(kpis.producedTodayM3, lang, 1)} ${t('dashboard.unitM3')}`} tone="purple" hint={`${kpis.pendingBatches} ${t('dashboard.kpi.pendingBatches')}`} />

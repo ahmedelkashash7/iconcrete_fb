@@ -167,7 +167,7 @@ export class PgAuthRepository {
         event.user_agent ?? null,
         event.request_id ?? null,
         event.result ?? 'success',
-        JSON.stringify(event.details ?? {}),
+        JSON.stringify({ schema_version: 2, ...(event.details ?? {}) }),
       ],
     );
   }
@@ -197,15 +197,54 @@ export class PgAuthRepository {
       ),
     );
     // jsonb may arrive as text depending on the driver configuration; the feed must be JSON.
-    return rows.map((row) => ({
-      ...row,
-      details:
-        typeof row.details === 'string'
-          ? (JSON.parse(row.details) as Record<string, unknown>)
-          : (row.details ?? {}),
-    }));
+    return rows.map((row) => {
+      const details = normalizeAuditDetails(row.details);
+      return { ...row, details, schema_version: details.schema_version };
+    });
   }
 }
+
+
+/**
+ * Audit details have two historical shapes (gap A1):
+ *   v1 — an array, because auth_audit concatenated a JSON *string* parameter with the
+ *        result object before the cast was fixed;
+ *   v2 — a plain object, written by the current code.
+ * The reader normalises both so every consumer sees one shape, tagged with schema_version.
+ * The audit table is append-only, so historical rows are interpreted, never rewritten.
+ */
+export const normalizeAuditDetails = (value: unknown): Record<string, unknown> => {
+  let parsed: unknown = value;
+  if (typeof parsed === 'string') {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      return { schema_version: 1, unreadable: true };
+    }
+  }
+  if (Array.isArray(parsed)) {
+    let merged: Record<string, unknown> = {};
+    for (const element of parsed) {
+      let candidate: unknown = element;
+      if (typeof candidate === 'string') {
+        try {
+          candidate = JSON.parse(candidate);
+        } catch {
+          continue;
+        }
+      }
+      if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+        merged = { ...merged, ...(candidate as Record<string, unknown>) };
+      }
+    }
+    return { schema_version: 1, ...merged };
+  }
+  if (parsed && typeof parsed === 'object') {
+    const object = parsed as Record<string, unknown>;
+    return { schema_version: 2, ...object };
+  }
+  return { schema_version: 2 };
+};
 
 /** Maps a stored user row to the shape the HTTP layer already uses. */
 export const safeUserFromRow = (row: PgUserRow | Record<string, unknown>) => {

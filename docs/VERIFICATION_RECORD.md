@@ -86,3 +86,41 @@ pass=178 fail=0 skip=0 typecheck/build/pytest/generator=ok
 
 Visual Arabic/RTL rendering, browser navigation, print layout, and any interaction that needs a
 real browser. No deployment, no push (GitHub unauthenticated).
+
+## Phase 1 closure pass — 2026-11-02 (Part A)
+
+Command: `bash scripts/verify.sh` (fresh PostgreSQL 16 on port 55440, migrate + seed).
+
+```
+pass=184 fail=0 skip=0 typecheck/build/pytest/generator=ok
+```
+
+New coverage added in this pass:
+
+- `tests/routes.smoke.test.ts` — 5 tests: page→component→router branch, settings fallback, nav
+  completeness in both directions, ar/en nav labels, role levels.
+- `tests/m1/audit.excel.test.ts` — legacy array payload and new object payload read through one
+  normaliser, tagged `schema_version` 1 and 2.
+- `tests/m1/vertical.slice.test.ts` — per-customer AR control-account tie-out replaces the
+  earlier weak assertion, plus ledger completeness against every posted 1100 line.
+- `tests/kpi.availability.test.ts` — unchanged; the dashboard consumes the same states.
+
+### Tests per module (B11)
+
+| Area | Tests |
+|---|---|
+| Core accounting / decimal / allocation / credit | 20 (tests/m1/core.test.ts) |
+| Organisation isolation | 6 |
+| Excel audit | 5 |
+| Durable imports | 4 |
+| Vertical slice | 5 |
+| Excel templates / workbooks / schema | 15 |
+| Routes and nav | 5 |
+| API and reports | see `tests/api.test.ts` |
+| RBAC / i18n / seed / validation / storage | 12 files, broad assertions |
+| **No domain coverage** | mix designs, orders, employees, fleet, materials (records-only templates) |
+
+### NOT TESTED
+
+Browser rendering, Arabic shaping, print layout, accessibility, live GPS/PLC/weighbridge,
+message delivery, WAL/PITR restore, and any paid infrastructure.

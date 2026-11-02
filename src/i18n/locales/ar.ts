@@ -469,6 +469,23 @@ export const ar = {
   'ledger.balance': 'الرصيد',
   'ledger.postable': 'حساب قابل للترحيل',
   'ledger.summary': 'حساب تجميعي',
+  'dashboard.state.title': 'حالة مؤشرات الأداء ومصدر البيانات',
+  'dashboard.state.subtitle': 'كل مؤشر يعلن حالته: بيانات فعلية، صفر حقيقي، لا سجلات، غير منفّذ، أو مصدر غير متاح.',
+  'dashboard.state.available': 'بيانات فعلية',
+  'dashboard.state.real_zero': 'صفر حقيقي',
+  'dashboard.state.no_records': 'لا توجد سجلات',
+  'dashboard.state.not_implemented': 'غير منفّذ في هذه المرحلة',
+  'dashboard.state.unavailable': 'المصدر غير متاح',
+  'dashboard.state.noTable': 'لا يوجد جدول مصدر',
+  'dashboard.state.legend': 'لا يُعرض أي مؤشر كصفر إلا إذا كانت هناك سجلات حقيقية تسنده.',
+  'dashboard.source': 'مصدر البيانات',
+  'dashboard.source.postgres': 'PostgreSQL مع RLS',
+  'dashboard.source.demo': 'بيانات تجريبية',
+  'dashboard.source.test': 'بيئة اختبار',
+  'dashboard.lastRefresh': 'آخر تحديث',
+  'report.source': 'مصدر التقرير',
+  'report.sourceFilters': 'المرشحات',
+
 } as const;
 
 export type TranslationKey = keyof typeof ar;

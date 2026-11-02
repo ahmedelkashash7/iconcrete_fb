@@ -119,3 +119,41 @@ export const summarizeKpiStates = (
   for (const state of Object.values(states)) summary[state.status] += 1;
   return summary;
 };
+
+/** i18n key per state, so the UI can never show a bare number for missing data. */
+export const KPI_STATE_LABEL_KEYS: Record<DataStatus, string> = {
+  available: 'dashboard.state.available',
+  real_zero: 'dashboard.state.real_zero',
+  no_records: 'dashboard.state.no_records',
+  not_implemented: 'dashboard.state.not_implemented',
+  unavailable: 'dashboard.state.unavailable',
+};
+
+export const kpiStateLabelKey = (status: DataStatus): string =>
+  KPI_STATE_LABEL_KEYS[status] ?? 'dashboard.state.unavailable';
+
+export type KpiStateTone = 'success' | 'neutral' | 'info' | 'warning' | 'danger';
+
+export const KPI_STATE_TONES: Record<DataStatus, KpiStateTone> = {
+  available: 'success',
+  real_zero: 'neutral',
+  no_records: 'info',
+  not_implemented: 'warning',
+  unavailable: 'danger',
+};
+
+export const kpiStateTone = (status: DataStatus): KpiStateTone =>
+  KPI_STATE_TONES[status] ?? 'danger';
+
+export const KPI_LABEL_KEYS: Record<KpiKey, string> = {
+  producedTodayM3: 'dashboard.kpi.producedToday',
+  rejectedTodayM3: 'dashboard.kpi.rejectedToday',
+  activeTrucks: 'dashboard.kpi.activeTrucks',
+  totalTrucks: 'dashboard.kpi.activeTrucks',
+  onTimeDeliveryPct: 'dashboard.kpi.onTime',
+  avg7dStrengthMpa: 'dashboard.kpi.avgStrength',
+  overdueReceivables: 'dashboard.kpi.overdue',
+  lowStockCount: 'dashboard.kpi.lowStock',
+  creditUtilizationPct: 'dashboard.kpi.creditUtilization',
+  pendingBatches: 'dashboard.kpi.pendingBatches',
+};

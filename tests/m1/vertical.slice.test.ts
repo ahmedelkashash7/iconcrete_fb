@@ -164,15 +164,40 @@ describeDb('M1 accounting vertical slice', () => {
     const last = statement.lines[statement.lines.length - 1];
     expect(last?.balance).toBeCloseTo(statement.closingBalance, 2);
 
-    const invoiceA = String((globalThis as Record<string, unknown>).sliceInvoiceA ?? '');
-    const entryRows = await admin.unsafe<{ entry_no: string }>(
-      `select e.entry_no from invoices i join journal_entries e on e.id = i.journal_entry_id where i.id = $1`,
-      [invoiceA],
+    // Account 1100 is the company-wide AR control account, so its GL balance is NOT the
+    // customer statement. The correct tie-out is per customer and is provable: posted
+    // debits from this customer's invoices minus posted credits from its receipts must
+    // equal the statement movement.
+    const arAccount = await admin.unsafe<{ id: string }>(
+      `select id from gl_accounts where company_id = 'CMP-0001' and code = '1100'`,
     );
-    const ledger = await service.generalLedger(context, '1100', { from: '2026-01-01', to: '2026-12-31' });
-    expect(ledger.debitTotal).toBeGreaterThan(0);
-    // Account 1100 is company-wide, so assert this invoice's posted entry appears in it.
-    expect(ledger.lines.some((line) => line.entryNo === entryRows[0]?.entry_no)).toBe(true);
+    const arAccountId = arAccount[0]?.id;
+    expect(arAccountId).toBeTruthy();
+    const arNet = await admin.unsafe<{ invoice_debit: string; payment_credit: string }>(
+      `select
+         coalesce((select sum(l.debit) from journal_entry_lines l
+            join journal_entries e on e.id = l.entry_id and e.status = 'posted'
+            join invoices i on i.journal_entry_id = e.id
+           where i.customer_id = $1 and l.account_id = $2 and e.entry_date between $3 and $4), 0) as invoice_debit,
+         coalesce((select sum(l.credit) from journal_entry_lines l
+            join journal_entries e on e.id = l.entry_id and e.status = 'posted'
+            join payments p on p.journal_entry_id = e.id
+           where p.customer_id = $1 and l.account_id = $2 and e.entry_date between $3 and $4), 0) as payment_credit`,
+      [customerId, arAccountId, '2000-01-01', '2100-01-01'],
+    );
+    const customerArNet = Number(arNet[0]?.invoice_debit ?? 0) - Number(arNet[0]?.payment_credit ?? 0);
+    expect(customerArNet).toBeCloseTo(statement.invoiced - statement.paid, 2);
+
+    // The ledger query must equal every posted line on 1100 for the company.
+    const ledger = await service.generalLedger(context, '1100', { from: '2000-01-01', to: '2100-01-01' });
+    const gl = await admin.unsafe<{ net: string }>(
+      `select coalesce(sum(l.debit - l.credit), 0) as net
+         from journal_entry_lines l
+         join journal_entries e on e.id = l.entry_id and e.status = 'posted'
+        where l.account_id = $1 and e.entry_date between $2 and $3`,
+      [arAccountId, '2000-01-01', '2100-01-01'],
+    );
+    expect(ledger.debitTotal - ledger.creditTotal).toBeCloseTo(Number(gl[0]?.net ?? 0), 2);
   });
 
   dbTest('refuses to post an already posted invoice', async () => {

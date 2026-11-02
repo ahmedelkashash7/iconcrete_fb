@@ -471,4 +471,21 @@ export const en: TranslationDict = {
   'ledger.postable': 'Postable account',
   'ledger.summary': 'Summary account',
 
+  'dashboard.state.title': 'KPI and data-source status',
+  'dashboard.state.subtitle': 'Every metric declares its state: real data, a real zero, no records, not implemented, or an unavailable source.',
+  'dashboard.state.available': 'Real data',
+  'dashboard.state.real_zero': 'Real zero',
+  'dashboard.state.no_records': 'No records',
+  'dashboard.state.not_implemented': 'Not implemented in this phase',
+  'dashboard.state.unavailable': 'Source unavailable',
+  'dashboard.state.noTable': 'No source table',
+  'dashboard.state.legend': 'No metric is shown as zero unless real rows support that zero.',
+  'dashboard.source': 'Data source',
+  'dashboard.source.postgres': 'PostgreSQL with RLS',
+  'dashboard.source.demo': 'Demo data',
+  'dashboard.source.test': 'Test environment',
+  'dashboard.lastRefresh': 'Last refresh',
+  'report.source': 'Report source',
+  'report.sourceFilters': 'Filters',
+
 };

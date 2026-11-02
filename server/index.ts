@@ -487,12 +487,26 @@ export const createApp = async (
         if (!REPORT_TYPES.includes(type)) return fail(404, 'not_found');
         const dataset = await datasetFor(session.user);
         const range = defaultRange();
+        const reportFrom = url.searchParams.get('from') ?? range.from;
+        const reportTo = url.searchParams.get('to') ?? range.to;
+        const reportCustomer = url.searchParams.get('customerId') ?? '';
         const report = buildReport(type, dataset, {
-          from: url.searchParams.get('from') ?? range.from,
-          to: url.searchParams.get('to') ?? range.to,
-          ...(url.searchParams.get('customerId') ? { customerId: url.searchParams.get('customerId') ?? '' } : {}),
+          from: reportFrom,
+          to: reportTo,
+          ...(reportCustomer ? { customerId: reportCustomer } : {}),
         });
-        return json({ report, canExport: canExportReports(session.roleLevel) });
+        return json({
+          report,
+          canExport: canExportReports(session.roleLevel),
+          generatedAt: new Date().toISOString(),
+          dataSource: {
+            mode: storage.mode,
+            adapter: db ? 'postgres' : 'memory',
+            tables: db ? 'tenant_rls' : 'demo_memory',
+            report: type,
+            filters: { from: reportFrom, to: reportTo, customerId: reportCustomer },
+          },
+        });
       }
 
       if (path.startsWith('/api/export/reports/') && method === 'GET') {

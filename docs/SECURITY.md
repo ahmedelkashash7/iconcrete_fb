@@ -94,3 +94,22 @@ transaction-scoped `app.audit_purge` flag that request connections never set.
   authoritative control.
 - Integration and durable-auth tests require a real PostgreSQL; without `DATABASE_URL` they
   are reported as skipped with the exact reason and must not be counted as passes.
+
+## Security status — 2026-11-02 (honest)
+
+| Control | Status | Evidence |
+|---|---|---|
+| Password hashing | IMPLEMENTED AND VERIFIED | argon2id; login and lockout tests exercise real hashes |
+| Session expiry | IMPLEMENTED AND VERIFIED | 30-minute sliding idle expiry; "expired sessions are rejected server-side and audited" |
+| Session revocation | IMPLEMENTED AND VERIFIED | logout revokes the durable session and the revocation survives a restart |
+| Failed-login protection | IMPLEMENTED AND VERIFIED | lockout after five failures, audited across a restart |
+| Rate limiting | NOT IMPLEMENTED | no request-rate limiter exists |
+| Password reset | NOT IMPLEMENTED | no reset flow |
+| CSRF protection | NOT APPLICABLE / NOT IMPLEMENTED | the API uses bearer tokens from sessionStorage, not cookies; there is no cookie-authenticated state-changing route. If cookies are introduced, CSRF protection becomes required |
+| Secure cookie configuration | NOT APPLICABLE | no cookies are issued |
+| TOTP 2FA | NOT IMPLEMENTED | login screen says so; settings entry is a placeholder |
+| Upload handling | IMPLEMENTED AND VERIFIED | extension/size limits, `.xlsm` rejection, formula neutralisation, staged commit with explicit confirmation |
+| Output encoding | IMPLEMENTED (framework) | React escapes rendered values; no explicit audit of every sink has been performed |
+
+These are also recorded in `docs/ISSUES_AND_GAPS.md`. Nothing here is claimed beyond the test
+names quoted.

@@ -104,6 +104,37 @@ describeDb('durable Excel audit feed', () => {
     expect(Date.parse(own[0]?.created_at ?? '')).toBeGreaterThan(0);
   });
 
+  dbTest('normalises legacy array-shaped details and new object details through one reader', async () => {
+    // Deliberately outside the AUD-<tag>- lifecycle prefix: this row is a synthetic
+    // historical payload, not one of the eight events counted by the restart test.
+    const legacyId = `LEG-${tag}-legacy`;
+    await admin.unsafe(
+      `insert into audit_log (company_id, username, action, record_id, request_id, details)
+       values ('CMP-0001', 'legacy', 'excel.validation_started', $1, $2, ($3::text)::jsonb)`,
+      [
+        legacyId,
+        `REQ-${tag}-legacy`,
+        JSON.stringify([
+          JSON.stringify({ templateId: 'customers', checksum: 'sha-legacy', stagedId: 'STG-legacy' }),
+          { result: 'success' },
+        ]),
+      ],
+    );
+
+    const entries = (await repo.listExcelAudit(ctx('CMP-0001'), 500)) as AuditRow[];
+    const legacy = entries.find((entry) => entry.record_id === legacyId);
+    expect(legacy?.details.checksum).toBe('sha-legacy');
+    expect(legacy?.details.stagedId).toBe('STG-legacy');
+    expect(legacy?.details.result).toBe('success');
+    // Historical rows are tagged v1 and never rewritten (the table is append-only).
+    expect(legacy?.details.schema_version).toBe(1);
+
+    const current = entries.find(
+      (entry) => entry.action === 'excel.validation_started' && entry.record_id !== legacyId,
+    );
+    expect(current?.details.schema_version).toBe(2);
+  });
+
   dbTest('never carries a password or a session token', async () => {
     const entries = await repo.listExcelAudit(ctx('CMP-0001'), 50);
     const serialized = JSON.stringify(entries).toLowerCase();
