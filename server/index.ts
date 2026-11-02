@@ -23,7 +23,7 @@ import { loadDatasetForTenant } from './db/datasetRepo';
 import { loadCompanyForTenant, loadPlantsForTenant, loadUsersForTenant } from './db/orgRepo';
 import { loadExcelContext } from './db/excelRepo';
 import { kpiStates, unavailableKpiStates } from '../src/core/availability';
-import { buildErrorWorkbook, buildTemplateWorkbook, parseUpload } from './excel';
+import { buildErrorCsv, buildErrorWorkbook, buildTemplateWorkbook, parseUpload } from './excel';
 import { buildCustomersWorkbook, buildReportWorkbook } from './export';
 import { buildReport, monthlySeries, REPORT_TYPES, type ReportType } from '../src/core/reports';
 import { buildAlerts, balanceFor, computeKpis } from '../src/core/metrics';
@@ -1042,6 +1042,40 @@ export const createApp = async (
           details: { fileName: staged.fileName },
         });
         return xlsx(buffer, `ICONCRETE_errors_${template.id}_${Date.now()}.xlsx`);
+      }
+
+      if (path.startsWith('/api/excel/errors/') && path.endsWith('.csv') && method === 'GET') {
+        const session = await sessionFor(request, 4);
+        if (!session.ok) return session.response;
+        const scope = tenantDataGuard(session.user);
+        if (scope) return scope;
+        const stagedId = path.replace('/api/excel/errors/', '').replace(/\.csv$/, '');
+        const durable = importRepo
+          ? await importRepo.getStaged(tenantContext(session.user), stagedId)
+          : null;
+        const staged = durable ?? store.staged.get(stagedId) ?? null;
+        if (!staged) return fail(404, 'not_found');
+        const template = templateById(staged.templateId);
+        if (!template) return fail(400, 'invalid_template');
+        const csv = buildErrorCsv(staged.result, template, staged.fileName);
+        await audit({
+          user_id: session.user.id,
+          username: session.user.username,
+          company_id: session.user.company_id,
+          action: 'excel.error_report_download',
+          table_name: 'excel_imports',
+          record_id: stagedId,
+          ip_address: clientIp(request),
+          details: { fileName: staged.fileName, format: 'csv' },
+        });
+        return new Response(csv, {
+          status: 200,
+          headers: {
+            'content-type': 'text/csv; charset=utf-8',
+            'content-disposition': `attachment; filename="ICONCRETE_errors_${template.id}_${Date.now()}.csv"`,
+            'cache-control': 'no-store',
+          },
+        });
       }
 
       if (path === '/api/excel/audit' && method === 'GET') {

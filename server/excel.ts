@@ -2,7 +2,7 @@ import ExcelJS from 'exceljs';
 import { BRAND } from '../src/brand';
 import type { ImportTemplate, ValidationResult } from '../src/core/validation';
 import { escapeForSpreadsheet } from '../src/core/validation';
-import { parseCsv } from './csv';
+import { csvEscape, parseCsv } from './csv';
 
 const PURPLE = 'FF6D28D9';
 const PURPLE_DARK = 'FF4C1D95';
@@ -287,6 +287,37 @@ export const parseUpload = async (
   });
 
   return { records, headerMatches, missingHeaders };
+};
+
+/** Bilingual CSV error report (RFC-4180) for a staged validation result. */
+export const buildErrorCsv = (
+  result: ValidationResult,
+  template: ImportTemplate,
+  fileName: string,
+): string => {
+  const lines: string[] = [
+    ['file', 'template', 'template_version', 'row', 'column', 'severity', 'message_ar', 'message_en', 'value'].join(','),
+  ];
+  result.rows.forEach((row) => {
+    row.issues.forEach((issue) => {
+      lines.push(
+        [
+          fileName,
+          template.id,
+          template.version,
+          String(row.rowNumber),
+          issue.column,
+          issue.severity,
+          issue.messageAr,
+          issue.messageEn,
+          issue.value ?? '',
+        ]
+          .map((value) => csvEscape(String(value)))
+          .join(','),
+      );
+    });
+  });
+  return `\uFEFF${lines.join('\r\n')}\r\n`;
 };
 
 /** Error report workbook with bilingual messages and the rejected rows. */

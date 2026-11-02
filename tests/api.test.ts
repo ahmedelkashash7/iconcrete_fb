@@ -222,6 +222,18 @@ describe('ICONCRETE API', () => {
     expect(errorBook.status).toBe(200);
     expect(new Uint8Array(await errorBook.arrayBuffer())[0]).toBe(0x50);
 
+    // B2: the same staged errors are downloadable as a bilingual CSV report.
+    const errorCsv = await call(`/api/excel/errors/${staged.stagedId}.csv`, { headers: auth(token) });
+    expect(errorCsv.status).toBe(200);
+    expect(errorCsv.headers.get('content-type')).toContain('text/csv');
+    const errorLines = (await errorCsv.text()).trim().split('\r\n');
+    expect(errorLines[0]).toContain('message_ar');
+    expect(errorLines[0]).toContain('message_en');
+    expect(errorLines.length).toBeGreaterThan(1);
+    expect(errorLines.slice(1).every((line) => line.includes('customers'))).toBe(true);
+
+    expect((await call(`/api/excel/errors/${staged.stagedId}.csv`)).status).toBe(401);
+
     const before = await call('/api/customers', { headers: auth(token) });
     const beforeCount = ((await before.json()) as { total: number }).total;
 

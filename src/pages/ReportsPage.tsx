@@ -39,7 +39,14 @@ export const ReportsPage = () => {
   const [customers, setCustomers] = useState<CustomerOption[]>([]);
   const [report, setReport] = useState<ReportResult | null>(null);
   const [canExport, setCanExport] = useState(false);
-  const [source, setSource] = useState<{ mode: string; at: string; report: string; filters: string } | null>(null);
+  const [source, setSource] = useState<{
+    mode: string;
+    adapter: string;
+    tables: string;
+    at: string;
+    report: string;
+    filters: string;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -68,6 +75,8 @@ export const ReportsPage = () => {
         setCanExport(response.canExport);
         setSource({
           mode: response.dataSource.mode,
+          adapter: response.dataSource.adapter,
+          tables: response.dataSource.tables,
           at: response.generatedAt,
           report: response.dataSource.report,
           filters: `${response.dataSource.filters.from} → ${response.dataSource.filters.to}`,
@@ -217,7 +226,9 @@ export const ReportsPage = () => {
             </p>
             {source ? (
               <p className="muted small" data-report-source={source.mode}>
-                {t('report.source')}: {t(`dashboard.source.${source.mode}`)} · {t('report.sourceFilters')}: {source.filters} ·{' '}
+                {t('report.source')}: {t(`dashboard.source.${source.mode}`)} · {t('report.sourceAdapter')}:{' '}
+                <span className="mono">{source.adapter}</span> · {t('report.sourceTables')}:{' '}
+                <span className="mono">{source.tables}</span> · {t('report.sourceFilters')}: {source.filters} ·{' '}
                 {t('report.generatedAt')} {source.at.slice(0, 19).replace('T', ' ')}
               </p>
             ) : null}

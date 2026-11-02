@@ -32,6 +32,16 @@ interface StagedResponse {
   checkedAt: string;
 }
 
+interface StagedRow {
+  id: string;
+  templateId: string;
+  fileName: string;
+  committed: boolean;
+  importedRows: number;
+  createdAt: string;
+  discardedAt?: string | null;
+}
+
 const MAX_BYTES = 2 * 1024 * 1024;
 
 export const ExcelCenterPage = () => {
@@ -47,6 +57,8 @@ export const ExcelCenterPage = () => {
   const [notice, setNotice] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
+  const [stagedList, setStagedList] = useState<StagedRow[]>([]);
+  const [discardingId, setDiscardingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const loadAudit = async () => {
@@ -57,6 +69,35 @@ export const ExcelCenterPage = () => {
       setAudit([]);
     }
   };
+
+  const loadStaged = async () => {
+    try {
+      const response = await apiFetch<{ staged: StagedRow[] }>('/api/excel/staged');
+      setStagedList(response.staged);
+    } catch {
+      setStagedList([]);
+    }
+  };
+
+  const discard = async (id: string) => {
+    setDiscardingId(id);
+    setError(null);
+    try {
+      await apiFetch('/api/excel/discard', { method: 'POST', body: JSON.stringify({ stagedId: id }) });
+      setNotice(t('excel.discarded'));
+      if (staged?.stagedId === id) setStaged(null);
+      await loadStaged();
+      void loadAudit();
+    } catch {
+      setError('excel.error.network');
+    } finally {
+      setDiscardingId(null);
+    }
+  };
+
+  useEffect(() => {
+    void loadStaged();
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -328,15 +369,26 @@ export const ExcelCenterPage = () => {
             title={t('excel.errorsTitle')}
             subtitle={t('excel.errorWorkbookHint')}
             actions={
-              <button
-                type="button"
-                className="btn btn--ghost btn--sm"
-                onClick={() =>
-                  void downloadFile(`/api/excel/errors/${staged.stagedId}.xlsx`, `ICONCRETE_errors_${staged.template.id}.xlsx`)
-                }
-              >
-                {t('excel.downloadErrorWorkbook')}
-              </button>
+              <div className="filters__actions">
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--sm"
+                  onClick={() =>
+                    void downloadFile(`/api/excel/errors/${staged.stagedId}.xlsx`, `ICONCRETE_errors_${staged.template.id}.xlsx`)
+                  }
+                >
+                  {t('excel.downloadErrorWorkbook')}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--sm"
+                  onClick={() =>
+                    void downloadFile(`/api/excel/errors/${staged.stagedId}.csv`, `ICONCRETE_errors_${staged.template.id}.csv`)
+                  }
+                >
+                  {t('excel.downloadErrorCsv')}
+                </button>
+              </div>
             }
           >
             {issues.length === 0 ? (
@@ -385,6 +437,46 @@ export const ExcelCenterPage = () => {
           </Card>
         </>
       ) : null}
+
+      <Card title={t('excel.stagedTitle')} subtitle={t('excel.stagedSubtitle')}>
+        <DataTable
+          dense
+          rows={stagedList}
+          rowKey={(row) => row.id}
+          empty={t('excel.stagedEmpty')}
+          columns={[
+            { key: 'id', header: t('common.id'), render: (row) => <span className="mono">{row.id}</span> },
+            { key: 'templateId', header: t('excel.stagedTemplate'), render: (row) => <span className="mono">{row.templateId}</span> },
+            { key: 'fileName', header: t('excel.stagedFile'), render: (row) => <span className="mono small">{row.fileName}</span> },
+            { key: 'importedRows', header: t('excel.stagedRows'), align: 'end' },
+            {
+              key: 'status',
+              header: t('excel.stagedStatus'),
+              render: (row) => (
+                <Badge tone={row.committed ? 'success' : 'warning'}>
+                  {row.committed ? t('excel.stagedCommitted') : t('excel.stagedOpen')}
+                </Badge>
+              ),
+            },
+            { key: 'createdAt', header: t('common.date'), render: (row) => formatDateTime(row.createdAt, lang) },
+            {
+              key: 'actions',
+              header: t('common.actions'),
+              render: (row) =>
+                row.committed ? null : (
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--sm"
+                    disabled={discardingId === row.id}
+                    onClick={() => void discard(row.id)}
+                  >
+                    {t('excel.discard')}
+                  </button>
+                ),
+            },
+          ]}
+        />
+      </Card>
 
       <Card title={t('excel.auditTitle')}>
         <DataTable

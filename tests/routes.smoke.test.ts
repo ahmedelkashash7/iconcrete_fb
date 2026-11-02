@@ -14,6 +14,7 @@ import { readFileSync } from 'node:fs';
 import { PAGES, PAGE_MIN_LEVEL } from '../src/core/rbac';
 import { ar } from '../src/i18n/locales/ar';
 import { en } from '../src/i18n/locales/en';
+import { createApp } from '../server/index';
 
 const EXPECTED_EXPORT: Record<string, string> = {
   dashboard: 'DashboardPage',
@@ -48,6 +49,20 @@ const MODULES: Record<string, Record<string, unknown>> = {
   audit: await import('../src/pages/StructurePages'),
   settings: await import('../src/pages/StructurePages'),
 };
+
+const api = await createApp();
+
+const status = async (path: string, method = 'GET'): Promise<number> =>
+  (
+    await api.handle(
+      new Request(`http://localhost${path}`, {
+        method,
+        ...(method === 'GET'
+          ? {}
+          : { headers: { 'content-type': 'application/json' }, body: '{}' }),
+      }),
+    )
+  ).status;
 
 const appSource = readFileSync('src/App.tsx', 'utf8');
 const shellSource = readFileSync('src/components/AppShell.tsx', 'utf8');
@@ -98,6 +113,36 @@ describe('route and navigation smoke', () => {
     const missingEn = keys.filter((key) => !(key in en));
     expect(missingAr).toEqual([]);
     expect(missingEn).toEqual([]);
+  });
+
+  test('B1 project, order and customer-write routes are mounted above the M1 fallback', async () => {
+    const routes: Array<[string, string]> = [
+      ['/api/projects', 'GET'],
+      ['/api/projects/PRJ-0001', 'GET'],
+      ['/api/projects', 'POST'],
+      ['/api/projects/PRJ-0001', 'PATCH'],
+      ['/api/orders', 'GET'],
+      ['/api/orders/ORD-0001', 'GET'],
+      ['/api/orders', 'POST'],
+      ['/api/orders/ORD-0001/transition', 'POST'],
+      ['/api/m1/customers', 'POST'],
+      ['/api/m1/customers/CUS-0001', 'PATCH'],
+    ];
+    const unresolved: string[] = [];
+    for (const [path, method] of routes) {
+      // 401 (anonymous) or 503 (durable store required) both prove the route is owned
+      // and gated by the API; a 404 would mean it was swallowed by the fallback.
+      const code = await status(path, method);
+      if (code !== 401 && code !== 503) unresolved.push(`${method} ${path} -> ${code}`);
+    }
+    expect(unresolved).toEqual([]);
+  });
+
+  test('report, staged-import and error-report routes answer, unknown paths do not', async () => {
+    expect(await status('/api/reports/general_balance')).toBe(401);
+    expect(await status('/api/excel/staged')).toBe(401);
+    expect(await status('/api/excel/errors/STG-0001.csv')).toBe(401);
+    expect(await status('/api/not-a-route')).toBe(404);
   });
 
   test('every page declares a minimum role level within the five-level matrix', () => {
