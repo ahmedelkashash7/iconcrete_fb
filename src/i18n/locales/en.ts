@@ -240,6 +240,7 @@ export const en: TranslationDict = {
   'report.exportError': 'Could not create the Excel file. Check your permissions and retry.',
   'report.printHint': 'The print button uses your browser print dialog — choose "Save as PDF" for a PDF copy.',
 
+  'nav.designSystem': 'Design system',
   'csv.title': 'CSV import wizard',
   'csv.subtitle': 'Upload a CSV, review the validation result, fix or reject it, then commit the rows with a full audit trail.',
   'csv.step1': '1. Upload',

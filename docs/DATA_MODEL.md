@@ -1,8 +1,9 @@
 # Data model (as implemented)
 
 Source of truth for the schema is `db/migrations/*.sql`. This file describes the model
-those files actually create — 46 base tables at migration `0008`. It does not describe planned
-tables, except where explicitly marked `NOT IMPLEMENTED`.
+those files actually create — 49 base tables at migration `0011` (verified by the restore
+drill: 49 tables, 45 with RLS). It does not describe planned tables, except where explicitly
+marked `NOT IMPLEMENTED`.
 
 ## Organizational scope
 
@@ -15,7 +16,8 @@ tables, except where explicitly marked `NOT IMPLEMENTED`.
 | `user_roles` | `company_id` | many-to-many user↔role |
 | `sessions` | `company_id` | SHA-256 `token_hash` only, `expires_at`, `revoked_at`, `last_seen_at` |
 | `audit_log` | `company_id` nullable, `plant_id` nullable | append-only; actor, action, before/after, request id |
-| `staged_imports` / `import_records` | `company_id` | table exists; the HTTP commit path still stages in memory (documented gap) |
+| `staged_imports` / `import_records` | `company_id` | durable staged Excel imports (gap G1 closed) |
+| `csv_staging` | `company_id` + `plant_id` | B2 CSV lifecycle: `file_hash`, `json_payload`, `status` (`pending`/`rejected`/`committed`), `error_details`, `committed_summary`, RLS + restrictive plant scope, partial unique index on open checksums |
 
 Every tenant table carries `created_at`, `updated_at`, `deleted_at`, `created_by`,
 `updated_by`, `version` where the migration defines them; `updated_at`/`version` are

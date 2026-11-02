@@ -7,7 +7,9 @@ node_modules/
 dist/
 dist-ssr/
 build/
+coverage/
 *.tsbuildinfo
+.vite/
 
 # environment / secrets
 .env
@@ -26,6 +28,7 @@ service-account*.json
 
 # logs
 *.log
+dev-server.log
 npm-debug.log*
 yarn-debug.log*
 bun-error.log
@@ -43,7 +46,7 @@ excel_generator/output/*
 !excel_generator/output/.gitkeep
 *.xlsx
 *.xlsm
-!excel_generator/sample_input/**
+!excel_generator/sample_input/**/.xlsx
 
 # OS / editor
 .DS_Store
@@ -52,5 +55,8 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 
+# verification and scratch output (reproducible, never committed)
 .verify/
 artifacts/
+playwright-report/
+test-results/

@@ -115,3 +115,42 @@ engineering thresholds that are not traced to a citable source are marked
 `NOT VERIFIED AGAINST SOURCE` rather than presented as code requirements.
 **Consequences.** Reports can be audited against the repository. Cost: some documents are
 less flattering than a marketing page would be.
+
+---
+
+## ADR-013 — One locked palette, contrast proven by test
+
+**Context.** §1 locks the palette and §60 requires contrast testing; a hex table in CSS can
+drift silently and a screenshot cannot be asserted.
+**Decision.** `src/lib/designTokens.ts` holds the palette and declares a WCAG target per pair;
+`src/lib/contrast.ts` implements the WCAG maths once; `tests/design.tokens.test.ts` fails on
+drift or shortfall, and `DesignSystemPage` renders the same numbers at runtime.
+**Consequences.** Colour changes now require editing tokens and passing the test. Colours that
+cannot carry body text (success, warning, secondary) are documented as tint/marker only.
+
+## ADR-014 — Static accessibility audit instead of a claimed browser pass
+
+**Context.** There is no browser or screen reader in the runner, but §57 forbids claiming an
+unexecuted test.
+**Decision.** `scripts/a11y-audit.ts` checks what source can prove (language, direction,
+viewport, focus, reduced motion, breakpoints, dialog semantics, contrast, labels, button
+types, table overflow) and prints hard failures separately from soft findings. Everything that
+needs layout or assistive technology is listed as NOT TESTED.
+**Consequences.** The audit is honest and repeatable; it cannot catch layout overflow or ARIA
+misuse outside its rules, which stays open as G15.
+
+## ADR-015 — Route-level code splitting over a manual vendor split
+
+**Context.** The build shipped one 814 kB chunk and Vite warned on every build.
+**Decision.** `src/App.tsx` uses `React.lazy` per page behind one `Suspense`, keeping the shell
+and login eager. No manual chunk map is maintained.
+**Consequences.** Entry dropped to 294.66 kB and the warning is gone; each navigation costs one
+extra request on a cold cache. Recharts stays in the dashboard chunk rather than the entry.
+
+## ADR-016 — Forward-only migrations, proven by checksum
+
+**Context.** B3 needed a `version` column on `csv_staging` after `0010` had been applied;
+editing `0010` was refused by the runner (`checksum drift`).
+**Decision.** Keep applied migrations immutable and add `0011_m1_csv_staging_version.sql`.
+**Consequences.** History is auditable and rollback means a new reversing migration
+(`docs/ROLLBACK.md`), never a rewrite.

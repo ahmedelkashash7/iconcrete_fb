@@ -1679,3 +1679,80 @@ select {
     background: #f1f5f9 !important;
   }
 }
+
+/* ---------------- B3: focus, motion, dialog ---------------- */
+
+/* One visible focus ring for every interactive element (§60 "visible focus"). */
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.btn:focus-visible,
+.app-nav__item:focus-visible,
+.lang-toggle button:focus-visible {
+  outline: 2px solid var(--primary-dark);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(109, 40, 217, 0.18);
+}
+
+.field input:focus-visible,
+.field select:focus-visible,
+.field textarea:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+  border-color: var(--primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Minimal dialog surface used by the design-system reference and future confirms. */
+.ds-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 60;
+}
+
+.ds-dialog {
+  width: min(520px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+  box-shadow: 0 24px 60px -30px rgba(15, 23, 42, 0.65);
+}
+
+.ds-dialog:focus-visible {
+  outline: 2px solid var(--primary-dark);
+  outline-offset: 3px;
+}
+
+/* The design-system reference renders long Arabic labels on purpose (§60). */
+.ds-dialog .card__body,
+.card__body .stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+@media (max-width: 640px) {
+  .ds-dialog-backdrop {
+    align-items: flex-end;
+  }
+  .ds-dialog {
+    width: 100%;
+  }
+}

@@ -124,3 +124,24 @@ New coverage added in this pass:
 
 Browser rendering, Arabic shaping, print layout, accessibility, live GPS/PLC/weighbridge,
 message delivery, WAL/PITR restore, and any paid infrastructure.
+
+---
+
+# Verification record — B3 tip, 2026-11-02
+
+Produced by real commands in this runner after the B3 changes. Earlier records above are
+kept as written; this section supersedes their counts.
+
+| Step | Command | Result |
+|---|---|---|
+| Typecheck | `bun run typecheck` | 0 errors |
+| Unit/API/DB tests | `bun test` | **220 pass, 0 fail, 0 skip**, 26 files, 3,307 expectations |
+| Palette/contrast | `bun test tests/design.tokens.test.ts` | 13 pass — 17/17 declared pairs meet target |
+| Accessibility audit | `bun run scripts/a11y-audit.ts` | mechanical PASS, 17/17 contrast, 0 unlabelled controls, 0 missing button types, 4 breakpoints |
+| Build | `bun run build` | success; entry 294.66 kB (90.34 kB gzip), largest chunk 393.71 kB (112.42 kB gzip), no size warning |
+| Excel tests | `.venv/bin/python -m pytest excel_generator/tests -q` | **31 passed, 1 skipped** (LibreOffice absent) |
+| Schema docs | `bun run scripts/schema-docs.ts` | `docs/DATA_DICTIONARY.md` regenerated from the live schema |
+| Full gate | `bash scripts/verify.sh` | `pass=220 fail=0 skip=0 typecheck/build/pytest/generator=ok` |
+| Restore drill | `bash scripts/backup-restore-drill.sh` | `DRILL PASSED: 49 tables, 45 RLS tables, 6 users, 1 audit rows restored and verified` |
+
+Not executed: browser/E2E, screen reader, LibreOffice recalculation, any deployment, any push.

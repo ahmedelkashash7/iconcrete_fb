@@ -84,3 +84,20 @@ Clean-extraction proof: the repository is archived from Git (tracked files only,
 `node_modules`, `.venv`, `.verify` or `dist`), restored into a fresh directory and verified
 there with the same script. Results and artifact hashes are recorded in
 `docs/VERIFICATION_RECORD.md`.
+
+---
+
+## B3 re-audit (2026-11-02)
+
+| Item | Value | Command |
+|---|---|---|
+| Bun / Node / Python | 1.3.14 / v24.21.0 / 3.12.3 | `bun --version`, `node --version`, `python3 --version` |
+| PostgreSQL | 16.2 via `pgserver` in `.verify/` | `bash scripts/verify.sh` |
+| Browser automation | **absent** | no Playwright/Chromium installed |
+| LibreOffice / soffice | **absent** (`no office binary`) | `which soffice libreoffice` |
+| Git remote | **absent** | `git remote -v` empty |
+| `gh` authentication | **absent** | repository creation/push blocked |
+| Disk output | `dist/` rebuilt in ~0.6 s; `backups/iconcrete-freebuff.bundle` refreshed per pass | `bun run build` |
+
+Consequences: §60 layout/keyboard/screen-reader items and formula recalculation by a real
+spreadsheet engine stay NOT TESTED; everything else in this file was measured.

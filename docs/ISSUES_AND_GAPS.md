@@ -1,7 +1,9 @@
 # Issues and gaps
 
-Open items at commit `5f90ccc`. Severity is about risk to real operations, not about how hard
-the fix is. Nothing here is hidden from the phase reports.
+Open items at the B3 tip (2026-11-02). The original table was written at `5f90ccc`; rows whose
+status changed are marked in the "Status at the B3 tip" section at the end. Severity is about
+risk to real operations, not about how hard the fix is. Nothing here is hidden from the phase
+reports.
 
 ## High
 
@@ -83,3 +85,26 @@ The table above is the historical record; this section states what changed and w
 - **G22 — audit details encoding.** `auth_audit` was concatenating a JSON *string* parameter with
   the result object, producing an array instead of an object. Fixed by casting through text;
   rows written before the fix keep the old shape.
+
+---
+
+## Status at the B3 tip (2026-11-02)
+
+Superseding notes for the table above; the original rows are kept so history stays visible.
+
+| Item | Status now | Evidence |
+|---|---|---|
+| G1 staged imports in memory | **CLOSED** | `staged_imports` is written in postgres mode; verify.sh requires the "durable staged imports" test marker, and `tests/m1/b2.csv.staging.test.ts` covers durable CSV staging |
+| G5 no backup/restore verification | **CLOSED** | `scripts/backup-restore-drill.sh` passes: 49 tables, 45 RLS tables, 6 users, 1 audit row restored and verified |
+| G4 M1 Excel templates | OPEN (unchanged) | accounting sheets absent; see `docs/B3_REPORT.md` item 9 |
+| G6 no browser | OPEN (unchanged) | static audit only, `docs/ACCESSIBILITY_AUDIT.md` lists the unverified items |
+| G7 no GitHub remote | OPEN (unchanged) | `gh` still unauthenticated |
+
+### New at B3
+
+| # | Gap | Impact | Next action |
+|---|---|---|---|
+| G12 | No LibreOffice/Excel recalculation run in this environment | formula results are proven structurally (`fullCalcOnLoad`, no stale cache, independent Python calc) but not by a spreadsheet engine | run `pytest -k libreoffice` where an office binary exists |
+| G13 | Design-system page is role level 5 only | viewers cannot see the reference page | expose read-only at level 1 after a sign-off on support cost |
+| G14 | Contrast is asserted from tokens, not measured on a physical panel | panel/gamut differences are unverified | spot check on a workstation |
+| G15 | No automated axe/Playwright accessibility run | ARIA mistakes outside the static rules can slip through | add Playwright + axe when a browser image exists |

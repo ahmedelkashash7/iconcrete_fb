@@ -13,6 +13,8 @@ companies 1 ── * roles ── * permissions        (through role_permissions
 users     * ── * roles                          (through user_roles, company scoped)
 users     1 ── * sessions
 companies 1 ── * audit_log                      (company_id nullable for pre-login events)
+companies 1 ── * csv_staging                    (plant-scoped; one open upload per file_hash)
+plants    1 ── * csv_staging
 ```
 
 ## Accounting

@@ -28,3 +28,12 @@ code. Each entry names the assumption, where it is used, and what would remove i
 2. Add a test that encodes the new value and its boundary.
 3. Update `docs/VALIDATION_RULES.md` and this register in the same commit.
 4. Record the approval actor and date in the commit message.
+
+## B3 additions
+
+| # | Assumption | Used in | Status | Removed by |
+|---|---|---|---|---|
+| A16 | WCAG 2.1 AA is the accessibility target (4.5:1 text, 3:1 large/UI) | `src/lib/designTokens.ts`, `tests/design.tokens.test.ts` | LOCKED FOR PHASE 1 | a formal accessibility policy naming another level |
+| A17 | Success/warning/secondary stay tint-only because their on-white ratios are 3.30/2.15/4.23 | design system, badges | IMPLEMENTED AND TESTED | darker token variants with a new palette decision |
+| A18 | Static source checks are an acceptable proxy where no browser exists | `scripts/a11y-audit.ts` | KNOWN LIMITATION | a browser/assistive-technology pass |
+| A19 | The design-system reference is an internal, level-5 page | `src/core/rbac.ts` | PRODUCT DECISION | sign-off to expose it read-only to all roles |

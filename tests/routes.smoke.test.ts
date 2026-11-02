@@ -31,6 +31,7 @@ const EXPECTED_EXPORT: Record<string, string> = {
   users: 'UsersPage',
   audit: 'AuditPage',
   settings: 'SettingsPage',
+  designSystem: 'DesignSystemPage',
 };
 
 const MODULES: Record<string, Record<string, unknown>> = {
@@ -48,6 +49,7 @@ const MODULES: Record<string, Record<string, unknown>> = {
   users: await import('../src/pages/StructurePages'),
   audit: await import('../src/pages/StructurePages'),
   settings: await import('../src/pages/StructurePages'),
+  designSystem: await import('../src/pages/DesignSystemPage'),
 };
 
 const api = await createApp();

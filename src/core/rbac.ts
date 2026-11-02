@@ -15,6 +15,7 @@ export const PAGES = [
   'excelCenter',
   'audit',
   'settings',
+  'designSystem',
 ] as const;
 
 export type PageKey = (typeof PAGES)[number];
@@ -35,6 +36,7 @@ export const PAGE_MIN_LEVEL: Record<PageKey, RoleLevel> = {
   users: 5,
   audit: 5,
   settings: 5,
+  designSystem: 5,
 };
 
 export const ROLE_KEYS: Record<RoleLevel, string> = {

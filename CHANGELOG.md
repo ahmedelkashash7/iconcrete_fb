@@ -106,3 +106,22 @@ versions follow Semantic Versioning.
   written by the HTTP auth flow yet.
 - Excel uploads still stage in memory; `staged_imports` is not wired to the uploader.
 - No M1 screens yet.
+
+## B3 — design system, accessibility audit, docs and hygiene (2026-11-02)
+
+- Added `src/lib/designTokens.ts` (locked §1 palette + declared WCAG targets),
+  `src/lib/contrast.ts` (WCAG 2.1 maths) and `tests/design.tokens.test.ts`.
+- Added `src/pages/DesignSystemPage.tsx` at `#/designSystem` (role level 5): palette with live
+  contrast, typography, buttons, inputs, tables, cards, badges, alerts, dialog, loading/empty/
+  error states, focus rings, RTL and LTR.
+- Added `scripts/a11y-audit.ts` and `docs/ACCESSIBILITY_AUDIT.md` separating mechanically
+  verified checks from browser/screen-reader items that remain NOT TESTED.
+- `src/index.css`: global `:focus-visible`, `prefers-reduced-motion`, dialog and mobile styles.
+- Code splitting: `src/App.tsx` loads pages with `React.lazy`; entry chunk 814.35 kB → 294.66 kB.
+- Excel generator sets `workbook.calculation.fullCalcOnLoad = True`; added
+  `excel_generator/tests/test_recalculation.py` (31 passed, 1 skipped without LibreOffice).
+- Repository hygiene: `README_AR.md`, `docs/BUILD_AND_DEPLOY.md`, `docs/ROLLBACK.md`, refreshed
+  `.gitignore`, refreshed ISSUES_AND_GAPS / SECURITY / VERIFICATION_RECORD / ENVIRONMENT_AUDIT /
+  ARCHITECTURE_DECISIONS (ADR-013…016) / FREE_TOOLING_AND_COSTS / DATA_MODEL /
+  ENTITY_RELATIONSHIPS / ASSUMPTIONS (A16…A19) / regenerated DATA_DICTIONARY.
+- B2 gap check: none — CSV lifecycle complete, wizard mounted, Reports UI wired.

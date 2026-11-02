@@ -1,18 +1,32 @@
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { BrandLogo } from './components/Brand';
 import { AppShell } from './components/AppShell';
+import { LoadingBlock } from './components/ui';
 import { LoginPage } from './pages/LoginPage';
-import { DashboardPage } from './pages/DashboardPage';
-import { ReportsPage } from './pages/ReportsPage';
-import { CustomersPage } from './pages/CustomersPage';
-import { ProjectsPage } from './pages/ProjectsPage';
-import { OrdersPage } from './pages/OrdersPage';
-import { InvoicesPage, LedgerPage, PaymentsPage, StatementPage } from './pages/LedgerPages';
-import { ExcelCenterPage } from './pages/ExcelCenterPage';
-import { AuditPage, PlantsPage, SettingsPage, UsersPage } from './pages/StructurePages';
 import { useAuth } from './auth/AuthContext';
 import { canAccessPage, PAGES, PAGE_MIN_LEVEL, type PageKey } from './core/rbac';
+
+/**
+ * Pages are loaded on demand so the first paint does not ship the chart library or the
+ * Excel Center. Vite emits one chunk per page; the entry chunk stays small (see
+ * docs/BUILD_AND_DEPLOY.md for the measured sizes).
+ */
+const DashboardPage = lazy(() => import('./pages/DashboardPage').then((m) => ({ default: m.DashboardPage })));
+const ReportsPage = lazy(() => import('./pages/ReportsPage').then((m) => ({ default: m.ReportsPage })));
+const CustomersPage = lazy(() => import('./pages/CustomersPage').then((m) => ({ default: m.CustomersPage })));
+const ProjectsPage = lazy(() => import('./pages/ProjectsPage').then((m) => ({ default: m.ProjectsPage })));
+const OrdersPage = lazy(() => import('./pages/OrdersPage').then((m) => ({ default: m.OrdersPage })));
+const ExcelCenterPage = lazy(() => import('./pages/ExcelCenterPage').then((m) => ({ default: m.ExcelCenterPage })));
+const DesignSystemPage = lazy(() => import('./pages/DesignSystemPage').then((m) => ({ default: m.DesignSystemPage })));
+const InvoicesPage = lazy(() => import('./pages/LedgerPages').then((m) => ({ default: m.InvoicesPage })));
+const PaymentsPage = lazy(() => import('./pages/LedgerPages').then((m) => ({ default: m.PaymentsPage })));
+const StatementPage = lazy(() => import('./pages/LedgerPages').then((m) => ({ default: m.StatementPage })));
+const LedgerPage = lazy(() => import('./pages/LedgerPages').then((m) => ({ default: m.LedgerPage })));
+const PlantsPage = lazy(() => import('./pages/StructurePages').then((m) => ({ default: m.PlantsPage })));
+const UsersPage = lazy(() => import('./pages/StructurePages').then((m) => ({ default: m.UsersPage })));
+const AuditPage = lazy(() => import('./pages/StructurePages').then((m) => ({ default: m.AuditPage })));
+const SettingsPage = lazy(() => import('./pages/StructurePages').then((m) => ({ default: m.SettingsPage })));
 
 const readHash = (): PageKey => {
   const raw = window.location.hash.replace(/^#\/?/, '');
@@ -65,34 +79,40 @@ export const App = () => {
             {t('common.backToDashboard')}
           </button>
         </div>
-      ) : page === 'dashboard' ? (
-        <DashboardPage onNavigate={navigate} />
-      ) : page === 'reports' ? (
-        <ReportsPage />
-      ) : page === 'customers' ? (
-        <CustomersPage />
-      ) : page === 'projects' ? (
-        <ProjectsPage />
-      ) : page === 'orders' ? (
-        <OrdersPage />
-      ) : page === 'invoices' ? (
-        <InvoicesPage />
-      ) : page === 'payments' ? (
-        <PaymentsPage />
-      ) : page === 'statement' ? (
-        <StatementPage />
-      ) : page === 'ledger' ? (
-        <LedgerPage />
-      ) : page === 'excelCenter' ? (
-        <ExcelCenterPage />
-      ) : page === 'plants' ? (
-        <PlantsPage />
-      ) : page === 'users' ? (
-        <UsersPage />
-      ) : page === 'audit' ? (
-        <AuditPage />
       ) : (
-        <SettingsPage />
+        <Suspense fallback={<LoadingBlock label={t('common.loading')} />}>
+          {page === 'dashboard' ? (
+            <DashboardPage onNavigate={navigate} />
+          ) : page === 'reports' ? (
+            <ReportsPage />
+          ) : page === 'customers' ? (
+            <CustomersPage />
+          ) : page === 'projects' ? (
+            <ProjectsPage />
+          ) : page === 'orders' ? (
+            <OrdersPage />
+          ) : page === 'invoices' ? (
+            <InvoicesPage />
+          ) : page === 'payments' ? (
+            <PaymentsPage />
+          ) : page === 'statement' ? (
+            <StatementPage />
+          ) : page === 'ledger' ? (
+            <LedgerPage />
+          ) : page === 'excelCenter' ? (
+            <ExcelCenterPage />
+          ) : page === 'plants' ? (
+            <PlantsPage />
+          ) : page === 'users' ? (
+            <UsersPage />
+          ) : page === 'audit' ? (
+            <AuditPage />
+          ) : page === 'designSystem' ? (
+            <DesignSystemPage />
+          ) : (
+            <SettingsPage />
+          )}
+        </Suspense>
       )}
     </AppShell>
   );

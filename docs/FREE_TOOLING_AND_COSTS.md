@@ -59,3 +59,16 @@ source URL.
    automated yet, so nothing is silently billed.
 4. **Provider lock-in** is limited by keeping SQL portable (plain PostgreSQL, no proprietary
    extensions) and business logic in `src/core/*`.
+
+---
+
+## B3 measurement (no new dependency, no new cost)
+
+- No package was added or upgraded for B3; the palette, contrast maths and audit script use
+  the existing Bun/React/Vite toolchain and `node:fs`.
+- Build without any new dependency: 814.35 kB single chunk (232.89 kB gzip) →
+  294.66 kB entry (90.34 kB gzip) + per-page chunks, largest 393.71 kB (112.42 kB gzip).
+- `pytest` gained one skipped test because LibreOffice is not installed; installing an office
+  suite is **not** required to generate or validate the workbook, and no paid licence is used.
+- Still zero-cost: Bun, React, Vite, Recharts, i18next, ExcelJS, openpyxl, PostgreSQL, Git,
+  Markdown. No hosted database, auth, email/SMS, payments, monitoring or AI key is used.

@@ -1539,6 +1539,9 @@ def build_workbook(cfg: cfg_module.GeneratorConfig | None = None) -> Workbook:
     )
     properties.subject = "Ready-mix concrete management"
     properties.keywords = "ICONCRETE, concrete, RTL, Arabic, Excel generator"
+    # §51: a formula in a cell does not prove it was calculated. Ask Excel/LibreOffice to
+    # recalculate every formula when the workbook opens, and never ship cached results.
+    workbook.calculation.fullCalcOnLoad = True
 
     demo = cfg_module.build_demo_data(cfg) if cfg.include_demo_data else {name: [] for name in (
         "customers", "suppliers", "materials", "mix_designs", "orders", "employees", "fleet"

@@ -113,3 +113,27 @@ transaction-scoped `app.audit_purge` flag that request connections never set.
 
 These are also recorded in `docs/ISSUES_AND_GAPS.md`. Nothing here is claimed beyond the test
 names quoted.
+
+---
+
+## B3 update — design system, uploads and audit surface
+
+Nothing in B3 weakened the model; it added a read-only reference page and stricter checks.
+
+- **Palette and contrast.** `tests/design.tokens.test.ts` fails if the §1 palette drifts or a
+  text pair drops below its WCAG target. Success (3.30:1), warning (2.15:1) and secondary
+  (4.23:1) are therefore restricted to tinted backgrounds, markers and large text; they are
+  never body text on white.
+- **Design-system page.** Registered at role level 5 alongside settings; it renders static
+  samples only, performs no API call and exposes no tenant data.
+- **Focus and motion.** `:focus-visible` rings and a `prefers-reduced-motion` clamp are
+  global; keyboard users no longer lose the caret outline.
+- **Dialog semantics.** The reference dialog sets `role="dialog"`, `aria-modal="true"` and an
+  `aria-labelledby` title; there is still no focus trap test (G15).
+- **Uploads.** Unchanged from B2: 2 MB cap, `.csv` only, sha256 checksum, no macro execution,
+  uploaded formulas never trusted, errors returned bilingually.
+- **Audit.** CSV staging writes `csv.staged`, `csv.rejected`, `csv.edited`,
+  `csv.row_committed`, `csv.committed`; `audit_log` remains append-only at the database level.
+
+Still absent: CSRF protection (safe only while sessions stay bearer-only), 2FA, password
+reset, session-management UI, edge rate limiting, audit retention policy.
