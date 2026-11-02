@@ -13,7 +13,9 @@ export type ReferenceTable =
   | 'plants'
   | 'mix_designs'
   | 'employees'
-  | 'trucks';
+  | 'trucks'
+  | 'gl_accounts'
+  | 'invoices';
 
 export interface TemplateColumn {
   key: string;
@@ -83,6 +85,9 @@ export interface ReferenceIndex {
   mix_designs: readonly string[];
   employees: readonly string[];
   trucks: readonly string[];
+  /** Accounting references added with the M1 templates; optional for the demo fixture. */
+  gl_accounts?: readonly string[];
+  invoices?: readonly string[];
 }
 
 export interface ValidationContext {

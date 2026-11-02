@@ -59,3 +59,27 @@ The table above is the historical record; this section states what changed and w
 - **G5 (backup/restore):** the repository now has a tested bundle/archive/restore procedure
   (`docs/BACKUP_AND_RESTORE.md`). A database dump/restore drill is still missing.
 - **G6 (no browser) and G7 (no remote) are unchanged.**
+
+## Update — 2026-11-02 (M1 gap closure)
+
+- **G1 — CLOSED.** Users and plants are read from PostgreSQL under RLS with company and plant
+  scope; the demo read model is used only in demo/test mode. Verified by
+  `tests/m1/org.readmodel.test.ts`.
+- **G2 — CLOSED.** Excel audit events are durable and read back from `audit_log`; in-memory audit
+  is no longer returned in postgres mode. `tests/m1/audit.excel.test.ts`.
+- **G3 — PARTIALLY CLOSED.** The API now distinguishes `available`, `real_zero`, `no_records`,
+  `not_implemented` and `unavailable`, and returns 503 instead of zeros when the read fails. The
+  dashboard UI does not surface the indicator yet (**G19**) and reports lack a source block (**G20**).
+- **G4 — CLOSED.** Executable `pg_dump`/`pg_restore` drill with 13 checks; dumps stay in
+  `.verify/` and are never committed. No PITR/encryption claim is made.
+- **G5 — IMPLEMENTED, VISUAL VERIFICATION PENDING.** Invoices, receipts, statement and ledger
+  screens call the real API. The service and routes are tested; browser rendering is NOT TESTED.
+- **G6 — CLOSED for nine accounting templates.** Chart of accounts, suppliers, invoices, invoice
+  items, payments, expenses, cheques, fixed assets and loans validate, stage, commit to domain
+  tables and audit. **G18 remains open** for materials, orders, employees, fleet and mix designs,
+  which still persist only to `import_records`.
+- **G17 — PARTIALLY CLOSED.** Modules without tables are now labelled `not_implemented` at the
+  API instead of being rendered as zero; the UI still shows the raw number (G19).
+- **G22 — audit details encoding.** `auth_audit` was concatenating a JSON *string* parameter with
+  the result object, producing an array instead of an object. Fixed by casting through text;
+  rows written before the fix keep the old shape.

@@ -104,3 +104,32 @@ on them show zero — deliberately, instead of demo numbers.
 
 No browser automation exists in this environment, so **no visual RTL, font, print or mobile
 check has been performed**. The honest status for "visual RTL rendering" is NOT TESTED.
+
+## M1 gap closure — 2026-11-02
+
+Status vocabulary: IMPLEMENTED AND VERIFIED / IMPLEMENTED BUT NOT FULLY VERIFIED / DEMO ONLY /
+TEMPLATE ONLY / INTEGRATION READY / BLOCKED / NOT IMPLEMENTED / NOT TESTED.
+
+| # | Gap | Status | Evidence |
+|---|---|---|---|
+| G1 | Database-backed users and plants | IMPLEMENTED AND VERIFIED | `server/db/orgRepo.ts`; `/api/users` and `/api/plants` read tenant tables under RLS; `tests/m1/org.readmodel.test.ts` proves company A/B isolation, plant scope, no demo rows, restart stability, real company name |
+| G2 | Excel audit read model | IMPLEMENTED AND VERIFIED | Eight lifecycle events persisted through `auth_audit`; `/api/excel/audit` reads `audit_log` under RLS (`PgAuthRepository.listExcelAudit`); duplicates now return `409 duplicate_import`; `tests/m1/audit.excel.test.ts` |
+| G3 | Honest KPI states | IMPLEMENTED BUT NOT FULLY VERIFIED | `src/core/availability.ts` + `kpiStates`/`dataSource` in `/api/dashboard`; 503 `data_source_unavailable` instead of zeros. Contract tested (`tests/kpi.availability.test.ts`); **the dashboard UI does not yet render the indicator** (G19) |
+| G4 | Backup and restore drill | IMPLEMENTED AND VERIFIED | `scripts/backup-restore-drill.sh`: `pg_dump -Fc`, fresh DB, role re-creation, `pg_restore`, grants, 13 checks (schema, RLS, forced RLS, auth session, imports, ledger balance, audit, row counts, tenant isolation); see `docs/BACKUP_RESTORE_DRILL.md` |
+| G5 | Monthly accounting vertical slice | IMPLEMENTED BUT NOT FULLY VERIFIED | Screens Invoices, Payments, Statement, Ledger (+ existing Customers); real `/api/m1/*` calls, no fake success, loading/empty/error/forbidden states. Service + API read models and full flow tested (`tests/m1/vertical.slice.test.ts`); **visual RTL/browser rendering NOT TESTED** |
+| G6 | Accounting Excel templates | IMPLEMENTED AND VERIFIED | Nine templates with schema version, bilingual field dictionary endpoint, required/allowed/date/number checks, duplicate and broken-reference errors, durable staging/commit, audit, no overwrite: chart_of_accounts, suppliers, invoices, invoice_items, payments, expenses, cheques, fixed_assets, loans. `tests/m1/excel.templates.test.ts`, `tests/excelWorkbooks.test.ts` |
+
+### Deliberate behaviour changes
+
+- A repeated upload with an identical checksum for the same tenant and template is now rejected
+  with `409 duplicate_import` and an `excel.duplicate_rejected` event; it previously returned the
+  existing staged record quietly.
+- `/api/users` no longer answers `403 tenant_data_unavailable` for a second company; it returns
+  that company's own users. A plant-scoped caller only sees users assigned to its plants.
+
+### Known limitations after this pass
+
+- G19: dashboard/reports UI does not display the new availability indicator yet (API only).
+- G20: `/api/reports/*` does not return a `dataSource` block yet.
+- G21: no browser automation, so Arabic shaping, bidi tables and print layout remain NOT TESTED.
+- G13: `pg_dump` drill covers logical backup/restore only — no WAL/PITR, no encryption at rest.

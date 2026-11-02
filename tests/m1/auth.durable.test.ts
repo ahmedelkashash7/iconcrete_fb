@@ -280,8 +280,13 @@ describeDb('durable authentication', () => {
 
     expect((await get(app, '/api/reports/general_balance', token)).status).toBe(200);
     expect((await get(app, '/api/export/customers.xlsx', token)).status).toBe(200);
-    // Users are still served by the demo read model, so the guard continues to apply there.
-    expect((await get(app, '/api/users', token)).status).toBe(403);
+    // Users are database-backed now: the second company reads its own people and must
+    // never see the demo tenant's users (the old demo guard no longer applies).
+    const users = await get(app, '/api/users', token);
+    expect(users.status).toBe(200);
+    const userRows = (users.body.users ?? []) as Array<{ company_id: string; username: string }>;
+    expect(userRows.every((row) => row.company_id === 'CMP-0002')).toBe(true);
+    expect(userRows.some((row) => row.username === 'admin2')).toBe(true);
     await app.db?.close();
   });
 

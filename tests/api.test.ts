@@ -189,7 +189,7 @@ describe('ICONCRETE API', () => {
     const templates = await call('/api/excel/templates', { headers: auth(token) });
     expect(templates.status).toBe(200);
     const list = (await templates.json()) as { templates: Array<{ id: string; version: string }> };
-    expect(list.templates).toHaveLength(7);
+    expect(list.templates).toHaveLength(15);
 
     const templateFile = await call('/api/excel/templates/customers.xlsx', { headers: auth(token) });
     expect(templateFile.status).toBe(200);
@@ -244,9 +244,9 @@ describe('ICONCRETE API', () => {
     const audit = await call('/api/excel/audit', { headers: auth(token) });
     const auditBody = (await audit.json()) as { entries: Array<{ action: string }> };
     const actions = auditBody.entries.map((entry) => entry.action);
-    expect(actions).toContain('excel.validate');
+    expect(actions).toContain('excel.validation_completed');
     expect(actions).toContain('excel.row_rejected');
-    expect(actions).toContain('excel.commit');
+    expect(actions).toContain('excel.staged_committed');
     expect(actions).toContain('excel.error_report_download');
   });
 

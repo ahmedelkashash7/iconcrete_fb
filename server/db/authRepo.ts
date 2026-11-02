@@ -8,7 +8,7 @@
  *
  * A raw session token never reaches this layer: callers pass the sha256 hash.
  */
-import type { Db } from './client';
+import type { Db, TenantContext } from './client';
 
 export interface PgCompanyRow {
   id: string;
@@ -152,7 +152,9 @@ export class PgAuthRepository {
 
   async audit(event: AuditEventInput): Promise<void> {
     await this.db.unsafe(
-      `select auth_audit($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb)`,
+      // Cast through text first: a bound string cast straight to jsonb can be stored as a
+      // JSON *string*, which then concatenates into an array instead of an object.
+      `select auth_audit($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,($12::text)::jsonb)`,
       [
         event.company_id,
         event.plant_id ?? null,
@@ -175,6 +177,33 @@ export class PgAuthRepository {
       `select * from auth_list_audit($1, $2)`,
       [companyId, Math.min(Math.max(limit, 1), 500)],
     );
+  }
+
+  /**
+   * Excel audit feed (gap G2). Read through the tenant context so RLS applies; the
+   * `company_id` predicate is explicit so an owner-role diagnostic cannot widen it.
+   * Returns only the documented, non-secret columns.
+   */
+  async listExcelAudit(ctx: TenantContext, limit = 100): Promise<unknown[]> {
+    const rows = await this.db.withTenant(ctx, (tx) =>
+      tx.unsafe<Record<string, unknown>>(
+        `select id, company_id, plant_id, user_id, username, action, table_name, record_id,
+                ip_address, request_id, details, created_at
+           from audit_log
+          where company_id = $1 and action like 'excel.%'
+          order by created_at desc, id desc
+          limit $2`,
+        [ctx.companyId, Math.min(Math.max(limit, 1), 500)],
+      ),
+    );
+    // jsonb may arrive as text depending on the driver configuration; the feed must be JSON.
+    return rows.map((row) => ({
+      ...row,
+      details:
+        typeof row.details === 'string'
+          ? (JSON.parse(row.details) as Record<string, unknown>)
+          : (row.details ?? {}),
+    }));
   }
 }
 

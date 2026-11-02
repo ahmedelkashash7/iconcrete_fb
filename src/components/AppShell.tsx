@@ -11,6 +11,7 @@ import type { Lang } from '../types';
 const NAV_GROUPS: Array<{ key: string; pages: PageKey[] }> = [
   { key: 'nav.overview', pages: ['dashboard', 'reports'] },
   { key: 'nav.data', pages: ['customers', 'excelCenter'] },
+  { key: 'nav.accounting', pages: ['invoices', 'payments', 'statement', 'ledger'] },
   { key: 'nav.admin', pages: ['plants', 'users', 'audit', 'settings'] },
 ];
 
@@ -68,6 +69,16 @@ const PageIcon = ({ page }: { page: PageKey }) => {
         <svg {...common} aria-hidden="true">
           <circle cx="12" cy="12" r="9" />
           <path d="M12 7v5l3 2" />
+        </svg>
+      );
+    case 'invoices':
+    case 'payments':
+    case 'statement':
+    case 'ledger':
+      return (
+        <svg {...common} aria-hidden="true">
+          <path d="M5 3h14v18H5z" />
+          <path d="M9 8h6M9 12h6M9 16h4" />
         </svg>
       );
     default:

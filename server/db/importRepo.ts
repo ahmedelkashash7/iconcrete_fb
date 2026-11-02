@@ -8,6 +8,7 @@
  */
 import type { Db, Executor, TenantContext } from './client';
 import type { ValidationResult } from '../../src/core/validation';
+import { applyTemplateRow } from './excelCommit';
 
 export interface StagedImportInput {
   id?: string;
@@ -213,7 +214,10 @@ export class PgImportRepository {
             ctx.userId ?? null,
           ],
         );
+        // Customers keep their dedicated handler (it also writes the credit limit);
+        // every other template with a domain table goes through the shared dispatcher.
         if (staged.template_id === 'customers') await insertCustomer(tx, ctx, row.values);
+        else await applyTemplateRow(tx, ctx, staged.template_id, row.values);
       }
 
       await tx.unsafe(`update staged_imports set committed = true, imported_rows = $2 where id = $1`, [

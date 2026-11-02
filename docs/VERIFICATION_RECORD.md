@@ -63,3 +63,26 @@ preceding commit `9acf09c`, whose code is identical — this record adds documen
 - PostgreSQL `pg_dump`/restore drill and any recovery-time measurement.
 - GitHub push (no authenticated remote).
 - Modules M2–M4; no phase beyond M1 was started.
+
+## M1 gap closure run — 2026-11-02
+
+Command: `bash scripts/verify.sh` (provisions PostgreSQL 16 on port 55440, migrates, seeds).
+
+```
+test counts: pass=178 fail=0 skip=0
+=== verify summary ===
+pass=178 fail=0 skip=0 typecheck/build/pytest/generator=ok
+```
+
+- typecheck PASS, build PASS (771.53 kB chunk warning unchanged), pytest 28 passed,
+  generator 15 sheets / 3 charts / 12 of 12 scenarios.
+- Database suites executed (0 skips): organisation isolation, Excel audit, durable imports,
+  read models, Excel template end-to-end, accounting vertical slice, durable auth.
+- `bash scripts/backup-restore-drill.sh` → `DRILL PASSED: 46 tables, 42 RLS tables, 6 users,
+  1 audit rows restored and verified.` All 13 checks ok, including RLS as `iconcrete_app`.
+- Template workbooks: all 15 templates produce a real xlsx (`tests/excelWorkbooks.test.ts`).
+
+### NOT TESTED in this run
+
+Visual Arabic/RTL rendering, browser navigation, print layout, and any interaction that needs a
+real browser. No deployment, no push (GitHub unauthenticated).

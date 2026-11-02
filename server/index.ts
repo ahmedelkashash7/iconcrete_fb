@@ -20,6 +20,9 @@ import {
 import { PgAuthRepository } from './db/authRepo';
 import { PgImportRepository } from './db/importRepo';
 import { loadDatasetForTenant } from './db/datasetRepo';
+import { loadCompanyForTenant, loadPlantsForTenant, loadUsersForTenant } from './db/orgRepo';
+import { loadExcelContext } from './db/excelRepo';
+import { kpiStates, unavailableKpiStates } from '../src/core/availability';
 import { buildErrorWorkbook, buildTemplateWorkbook, parseUpload } from './excel';
 import { buildCustomersWorkbook, buildReportWorkbook } from './export';
 import { buildReport, monthlySeries, REPORT_TYPES, type ReportType } from '../src/core/reports';
@@ -327,9 +330,16 @@ export const createApp = async (
       if (path === '/api/auth/me' && method === 'GET') {
         const session = await sessionFor(request, 1);
         if (!session.ok) return session.response;
+        const company = db
+          ? await loadCompanyForTenant(db, tenantContext(session.user))
+          : store.dataset.company;
         return json({
           user: session.user,
-          company: { name_ar: store.dataset.company.name_ar, name_en: store.dataset.company.name_en },
+          company: {
+            name_ar: company?.name_ar ?? '',
+            name_en: company?.name_en ?? '',
+          },
+          storage: db ? 'postgres' : 'memory',
         });
       }
 
@@ -362,7 +372,24 @@ export const createApp = async (
       if (path === '/api/dashboard' && method === 'GET') {
         const session = await sessionFor(request, 1);
         if (!session.ok) return session.response;
-        const dataset = await datasetFor(session.user);
+        let dataset: DemoDataset;
+        try {
+          dataset = await datasetFor(session.user);
+        } catch (error) {
+          // A failed read is not a zero: label the source unavailable and say so.
+          console.error('[ICONCRETE API] dashboard dataset unavailable', error);
+          return json(
+            {
+              error: 'data_source_unavailable',
+              retryable: true,
+              message:
+                'The database read failed, so KPIs are reported as unavailable instead of zero.',
+              dataSource: { mode: storage.mode, adapter: db ? 'postgres' : 'memory' },
+              kpiStates: unavailableKpiStates(storage.mode),
+            },
+            503,
+          );
+        }
         const kpis = computeKpis(dataset);
         const balance = balanceFor(dataset);
         const restricted = session.roleLevel < 2;
@@ -382,6 +409,12 @@ export const createApp = async (
           plants: dataset.plants,
           generatedAt: new Date().toISOString(),
           storageMode: storage.mode,
+          dataSource: {
+            mode: storage.mode,
+            adapter: db ? 'postgres' : 'memory',
+            tables: db ? 'tenant_rls' : 'demo_memory',
+          },
+          kpiStates: kpiStates(dataset, kpis, storage.mode),
         });
       }
 
@@ -395,17 +428,47 @@ export const createApp = async (
       if (path === '/api/plants' && method === 'GET') {
         const session = await sessionFor(request, 5);
         if (!session.ok) return session.response;
-        const scope = tenantDataGuard(session.user);
-        if (scope) return scope;
-        return json({ plants: store.dataset.plants });
+        if (db) {
+          const plants = await loadPlantsForTenant(db, tenantContext(session.user));
+          return json({
+            plants,
+            total: plants.length,
+            scope: {
+              companyId: session.user.company_id,
+              plantIds: session.user.assigned_plant_ids,
+              plantScoped: session.user.assigned_plant_ids.length > 0,
+            },
+            storage: 'postgres',
+          });
+        }
+        return json({
+          plants: store.dataset.plants,
+          total: store.dataset.plants.length,
+          storage: 'memory',
+        });
       }
 
       if (path === '/api/users' && method === 'GET') {
         const session = await sessionFor(request, 5);
         if (!session.ok) return session.response;
-        const scope = tenantDataGuard(session.user);
-        if (scope) return scope;
-        return json({ users: store.users.map((user) => toSafeUser(user)) });
+        if (db) {
+          const users = await loadUsersForTenant(db, tenantContext(session.user));
+          return json({
+            users,
+            total: users.length,
+            scope: {
+              companyId: session.user.company_id,
+              plantIds: session.user.assigned_plant_ids,
+              plantScoped: session.user.assigned_plant_ids.length > 0,
+            },
+            storage: 'postgres',
+          });
+        }
+        return json({
+          users: store.users.map((user) => toSafeUser(user)),
+          total: store.users.length,
+          storage: 'memory',
+        });
       }
 
       if (path === '/api/audit' && method === 'GET') {
@@ -509,6 +572,36 @@ export const createApp = async (
         });
       }
 
+      if (path.startsWith('/api/excel/templates/') && path.endsWith('/dictionary') && method === 'GET') {
+        const session = await sessionFor(request, 4);
+        if (!session.ok) return session.response;
+        const templateId = path.replace('/api/excel/templates/', '').replace(/\/dictionary$/, '');
+        const template = templateById(templateId);
+        if (!template) return fail(404, 'not_found');
+        return json({
+          templateId: template.id,
+          entity: template.entity,
+          schemaVersion: template.version,
+          sheetName: template.sheetName,
+          uniqueKeys: template.uniqueKeys,
+          requiredFields: template.columns
+            .filter((column) => column.required)
+            .map((column) => column.key),
+          fields: template.columns.map((column) => ({
+            key: column.key,
+            labelAr: column.labelAr,
+            labelEn: column.labelEn,
+            type: column.type,
+            required: column.required,
+            allowedValues: column.enumValues ?? null,
+            min: column.min ?? null,
+            max: column.max ?? null,
+            reference: column.reference ?? null,
+            example: column.example,
+          })),
+        });
+      }
+
       if (path.startsWith('/api/excel/templates/') && path.endsWith('.xlsx') && method === 'GET') {
         const session = await sessionFor(request, 4);
         if (!session.ok) return session.response;
@@ -547,6 +640,22 @@ export const createApp = async (
           return fail(415, 'unsupported_type');
         }
 
+        await audit({
+          user_id: session.user.id,
+          username: session.user.username,
+          company_id: session.user.company_id,
+          action: 'excel.validation_started',
+          table_name: 'excel_imports',
+          record_id: null,
+          ip_address: clientIp(request),
+          details: {
+            templateId: template.id,
+            templateVersion: template.version,
+            fileName: file.name,
+            bytes: file.size,
+          },
+        });
+
         const bytes = new Uint8Array(await file.arrayBuffer());
         const checksum = new Bun.CryptoHasher('sha256').update(bytes).digest('hex');
         let parsed;
@@ -558,7 +667,11 @@ export const createApp = async (
 
         if (parsed.records.length === 0) return fail(422, 'no_rows');
 
-        const result = validateRows(template, parsed.records, validationContext(template.id));
+        // Validate against the caller's tenant rows in postgres mode (never the demo fixture).
+        const context = db
+          ? await loadExcelContext(db, tenantContext(session.user), template.id)
+          : validationContext(template.id);
+        const result = validateRows(template, parsed.records, context);
         const stagedId = `STG-${crypto.randomUUID().slice(0, 12)}`;
         store.staged.set(stagedId, {
           id: stagedId,
@@ -575,8 +688,9 @@ export const createApp = async (
         });
 
         // Durable staging (G1): the parsed result survives a restart and is tenant scoped.
+        let stagedDuplicate: { duplicate: boolean; id: string } | null = null;
         if (importRepo) {
-          await importRepo.saveStaged(tenantContext(session.user), {
+          const saved = await importRepo.saveStaged(tenantContext(session.user), {
             id: stagedId,
             templateId: template.id,
             templateVersion: template.version,
@@ -589,13 +703,14 @@ export const createApp = async (
                 ? session.user.assigned_plant_ids[0] ?? null
                 : null,
           });
+          stagedDuplicate = { duplicate: saved.duplicate, id: saved.record.id };
         }
 
         await audit({
           user_id: session.user.id,
           username: session.user.username,
           company_id: session.user.company_id,
-          action: 'excel.validate',
+          action: 'excel.validation_completed',
           table_name: 'excel_imports',
           record_id: stagedId,
           ip_address: clientIp(request),
@@ -631,6 +746,50 @@ export const createApp = async (
           });
         }
 
+        if (stagedDuplicate?.duplicate) {
+          store.staged.delete(stagedId);
+          await audit({
+            user_id: session.user.id,
+            username: session.user.username,
+            company_id: session.user.company_id,
+            action: 'excel.duplicate_rejected',
+            table_name: 'excel_imports',
+            record_id: stagedDuplicate.id,
+            ip_address: clientIp(request),
+            details: {
+              templateId: template.id,
+              checksum,
+              fileName: file.name,
+              reason: 'identical checksum already staged for this tenant and template',
+            },
+          });
+          return fail(409, 'duplicate_import', {
+            stagedId: stagedDuplicate.id,
+            checksum,
+            message:
+              'This exact file was already staged. Review or discard the existing upload first.',
+          });
+        }
+
+        await audit({
+          user_id: session.user.id,
+          username: session.user.username,
+          company_id: session.user.company_id,
+          action: 'excel.staged_created',
+          table_name: 'excel_imports',
+          record_id: stagedId,
+          ip_address: clientIp(request),
+          details: {
+            templateId: template.id,
+            templateVersion: template.version,
+            checksum,
+            bytes: file.size,
+            durable: Boolean(importRepo),
+            validRows: result.summary.validRows,
+            errorRows: result.summary.errorRows,
+          },
+        });
+
         return json({
           stagedId,
           fileName: file.name,
@@ -663,7 +822,7 @@ export const createApp = async (
             user_id: session.user.id,
             username: session.user.username,
             company_id: session.user.company_id,
-            action: 'excel.commit',
+            action: 'excel.staged_committed',
             table_name: outcome.templateId,
             record_id: stagedId,
             ip_address: clientIp(request),
@@ -767,7 +926,7 @@ export const createApp = async (
           user_id: session.user.id,
           username: session.user.username,
           company_id: session.user.company_id,
-          action: 'excel.commit',
+          action: 'excel.staged_committed',
           table_name: template.entity,
           record_id: stagedId,
           ip_address: clientIp(request),
@@ -812,7 +971,7 @@ export const createApp = async (
           user_id: session.user.id,
           username: session.user.username,
           company_id: session.user.company_id,
-          action: 'excel.discard',
+          action: 'excel.staged_discarded',
           table_name: 'excel_imports',
           record_id: stagedId,
           ip_address: clientIp(request),
@@ -873,9 +1032,21 @@ export const createApp = async (
       if (path === '/api/excel/audit' && method === 'GET') {
         const session = await sessionFor(request, 4);
         if (!session.ok) return session.response;
+        const requested = Number(url.searchParams.get('limit') ?? 100);
+        const limit = Number.isFinite(requested) ? requested : 100;
+        if (authRepo) {
+          // Gap G2: the feed is read from audit_log under RLS; never from process memory.
+          const entries = await authRepo.listExcelAudit(tenantContext(session.user), limit);
+          return json({ entries, total: entries.length, storage: 'postgres' });
+        }
         const scope = tenantDataGuard(session.user);
         if (scope) return scope;
-        return json({ entries: store.dataset.auditLog.filter((entry) => entry.action.startsWith('excel.')).slice(0, 100) });
+        return json({
+          entries: store.dataset.auditLog
+            .filter((entry) => entry.action.startsWith('excel.'))
+            .slice(0, limit),
+          storage: 'memory',
+        });
       }
 
       if (path.startsWith('/api/m1')) {

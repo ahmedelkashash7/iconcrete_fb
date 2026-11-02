@@ -2,10 +2,26 @@ import { describe, expect, test } from 'bun:test';
 import { TEMPLATES, templateById, templateHeaderRow } from '../src/core/excelSchema';
 
 describe('Excel import templates', () => {
-  test('exposes the seven Phase 1 templates', () => {
+  test('exposes the Phase 1 and M1 accounting templates', () => {
     const ids = TEMPLATES.map((template) => template.id).sort();
     expect(ids).toEqual(
-      ['customers', 'employees', 'fleet', 'materials', 'mix_designs', 'orders', 'suppliers'].sort(),
+      [
+        'customers',
+        'employees',
+        'fleet',
+        'materials',
+        'mix_designs',
+        'orders',
+        'suppliers',
+        'chart_of_accounts',
+        'invoices',
+        'invoice_items',
+        'payments',
+        'expenses',
+        'cheques',
+        'fixed_assets',
+        'loans',
+      ].sort(),
     );
     expect(new Set(ids).size).toBe(ids.length);
   });

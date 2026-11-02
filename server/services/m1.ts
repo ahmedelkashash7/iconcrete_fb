@@ -378,6 +378,256 @@ export class M1Service {
     });
   }
 
+  // ---------------------------------------------------------- read models
+  async listAccounts(context: M1Context) {
+    return this.db.withTenant(context.tenant, async (tx) => {
+      const rows = await tx.unsafe<Record<string, unknown>>(
+        `select id, code, name_ar, name_en, account_type, normal_side, is_postable, is_active
+           from gl_accounts
+          where company_id = $1 and deleted_at is null
+          order by code`,
+        [context.tenant.companyId],
+      );
+      return rows.map((row) => ({
+        id: String(row.id),
+        code: String(row.code),
+        nameAr: String(row.name_ar ?? ''),
+        nameEn: String(row.name_en ?? ''),
+        accountType: String(row.account_type),
+        normalSide: String(row.normal_side),
+        isPostable: row.is_postable !== false,
+        isActive: row.is_active !== false,
+      }));
+    });
+  }
+
+  async listCustomers(context: M1Context) {
+    return this.db.withTenant(context.tenant, async (tx) => {
+      const rows = await tx.unsafe<Record<string, unknown>>(
+        `select c.id, c.name_ar, c.name_en, c.status, c.credit_days,
+                coalesce((select cl.credit_limit from customer_credit_limits cl
+                           where cl.customer_id = c.id and cl.effective_to is null
+                           order by cl.effective_from desc limit 1), 0) as credit_limit
+           from customers c
+          where c.company_id = $1 and c.deleted_at is null
+          order by c.id`,
+        [context.tenant.companyId],
+      );
+      return rows.map((row) => ({
+        id: String(row.id),
+        nameAr: String(row.name_ar ?? ''),
+        nameEn: String(row.name_en ?? ''),
+        status: String(row.status),
+        creditDays: Number(row.credit_days ?? 0),
+        creditLimit: decToNumber(dec(String(row.credit_limit ?? 0), 2)),
+      }));
+    });
+  }
+
+  async listInvoices(
+    context: M1Context,
+    filter: { status?: string; customerId?: string; limit?: number } = {},
+  ) {
+    const limit = Math.min(Math.max(Math.trunc(filter.limit ?? 100), 1), 500);
+    return this.db.withTenant(context.tenant, async (tx) => {
+      const rows = await tx.unsafe<Record<string, unknown>>(
+        `select i.id, i.invoice_no, i.customer_id, c.name_ar as customer_name_ar,
+                c.name_en as customer_name_en, i.issue_date, i.due_date, i.subtotal, i.tax_amount,
+                i.grand_total, i.retention_amount, i.status,
+                coalesce((select sum(pa.amount) from payment_allocations pa where pa.invoice_id = i.id), 0) as paid,
+                (select count(*)::int from invoice_items it where it.invoice_id = i.id) as item_count
+           from invoices i
+           join customers c on c.id = i.customer_id
+          where i.company_id = $1 and i.deleted_at is null
+            and ($2 = '' or i.status = $2)
+            and ($3 = '' or i.customer_id = $3)
+          order by i.issue_date desc, i.id desc
+          limit $4`,
+        [context.tenant.companyId, filter.status ?? '', filter.customerId ?? '', limit],
+      );
+      return rows.map((row) => {
+        const grand = decToNumber(dec(String(row.grand_total ?? 0), 2));
+        const retention = decToNumber(dec(String(row.retention_amount ?? 0), 2));
+        const paid = decToNumber(dec(String(row.paid ?? 0), 2));
+        return {
+          id: String(row.id),
+          invoiceNo: String(row.invoice_no),
+          customerId: String(row.customer_id),
+          customerNameAr: String(row.customer_name_ar ?? ''),
+          customerNameEn: String(row.customer_name_en ?? ''),
+          issueDate: new Date(row.issue_date as string).toISOString().slice(0, 10),
+          dueDate: new Date(row.due_date as string).toISOString().slice(0, 10),
+          subtotal: decToNumber(dec(String(row.subtotal ?? 0), 2)),
+          taxAmount: decToNumber(dec(String(row.tax_amount ?? 0), 2)),
+          grandTotal: grand,
+          paidAmount: paid,
+          outstanding: Number((grand - retention - paid).toFixed(2)),
+          status: String(row.status),
+          itemCount: Number(row.item_count ?? 0),
+        };
+      });
+    });
+  }
+
+  async listPayments(context: M1Context, limitParam = 100) {
+    const limit = Math.min(Math.max(Math.trunc(limitParam), 1), 500);
+    return this.db.withTenant(context.tenant, async (tx) => {
+      const rows = await tx.unsafe<Record<string, unknown>>(
+        `select p.id, p.payment_no, p.customer_id, c.name_ar as customer_name_ar,
+                c.name_en as customer_name_en, p.method, p.amount, p.unapplied_amount, p.payment_date,
+                p.reference, p.status, p.journal_entry_id,
+                (select count(*)::int from payment_allocations pa where pa.payment_id = p.id) as allocation_count
+           from payments p
+           left join customers c on c.id = p.customer_id
+          where p.company_id = $1 and p.deleted_at is null
+          order by p.payment_date desc, p.id desc
+          limit $2`,
+        [context.tenant.companyId, limit],
+      );
+      return rows.map((row) => ({
+        id: String(row.id),
+        paymentNo: String(row.payment_no),
+        customerId: String(row.customer_id ?? ''),
+        customerNameAr: String(row.customer_name_ar ?? ''),
+        customerNameEn: String(row.customer_name_en ?? ''),
+        method: String(row.method),
+        amount: decToNumber(dec(String(row.amount ?? 0), 2)),
+        unappliedAmount: decToNumber(dec(String(row.unapplied_amount ?? 0), 2)),
+        paymentDate: new Date(row.payment_date as string).toISOString().slice(0, 10),
+        reference: String(row.reference ?? ''),
+        status: String(row.status),
+        allocationCount: Number(row.allocation_count ?? 0),
+        journalEntryId: row.journal_entry_id === null ? null : Number(row.journal_entry_id),
+      }));
+    });
+  }
+
+  /** Customer statement: opening balance, activity and closing balance from posted rows. */
+  async customerStatement(
+    context: M1Context,
+    customerId: string,
+    filter: { from?: string; to?: string } = {},
+  ) {
+    return this.db.withTenant(context.tenant, async (tx) => {
+      const customers = await tx.unsafe<Record<string, unknown>>(
+        `select c.id, c.name_ar, c.name_en, c.credit_days, c.status,
+                coalesce((select cl.credit_limit from customer_credit_limits cl
+                           where cl.customer_id = c.id and cl.effective_to is null
+                           order by cl.effective_from desc limit 1), 0) as credit_limit
+           from customers c
+          where c.id = $1 and c.company_id = $2 and c.deleted_at is null`,
+        [customerId, context.tenant.companyId],
+      );
+      const customer = customers[0];
+      if (!customer) throw new M1Error('customer_not_found', 404);
+
+      const invoices = await tx.unsafe<Record<string, unknown>>(
+        `select i.id, i.invoice_no, i.issue_date, i.due_date, i.grand_total, i.retention_amount, i.status,
+                coalesce((select sum(pa.amount) from payment_allocations pa where pa.invoice_id = i.id), 0) as paid
+           from invoices i
+          where i.company_id = $1 and i.customer_id = $2 and i.deleted_at is null
+            and i.status not in ('draft','void')
+          order by i.issue_date, i.id`,
+        [context.tenant.companyId, customerId],
+      );
+      const payments = await tx.unsafe<Record<string, unknown>>(
+        `select p.id, p.payment_no, p.payment_date, p.method, p.amount, p.unapplied_amount, p.reference,
+                coalesce(json_agg(json_build_object('invoiceId', pa.invoice_id, 'invoiceNo', i.invoice_no,
+                  'amount', pa.amount) order by pa.sequence)
+                  filter (where pa.id is not null), '[]'::json) as allocations
+           from payments p
+           left join payment_allocations pa on pa.payment_id = p.id
+           left join invoices i on i.id = pa.invoice_id
+          where p.company_id = $1 and p.customer_id = $2 and p.deleted_at is null and p.status = 'posted'
+          group by p.id
+          order by p.payment_date, p.id`,
+        [context.tenant.companyId, customerId],
+      );
+
+      const from = filter.from ?? '';
+      const to = filter.to ?? '';
+
+      let opening = 0;
+      let invoiced = 0;
+      let paidTotal = 0;
+      const statementLines: Record<string, unknown>[] = [];
+
+      for (const row of invoices) {
+        const grand = decToNumber(dec(String(row.grand_total ?? 0), 2));
+        const retention = decToNumber(dec(String(row.retention_amount ?? 0), 2));
+        const paid = decToNumber(dec(String(row.paid ?? 0), 2));
+        const date = new Date(row.issue_date as string).toISOString().slice(0, 10);
+        if (date < from) {
+          opening = Number((opening + grand - retention - paid).toFixed(2));
+          continue;
+        }
+        if (to !== '' && date > to) continue;
+        invoiced = Number((invoiced + grand - retention).toFixed(2));
+        statementLines.push({
+          id: `inv-${String(row.id)}`,
+          kind: 'invoice',
+          date,
+          reference: String(row.invoice_no),
+          debit: grand - retention,
+          credit: 0,
+          status: String(row.status),
+        });
+      }
+
+      for (const row of payments) {
+        const amount = decToNumber(dec(String(row.amount ?? 0), 2));
+        const unapplied = decToNumber(dec(String(row.unapplied_amount ?? 0), 2));
+        const date = new Date(row.payment_date as string).toISOString().slice(0, 10);
+        if (date < from) {
+          opening = Number((opening - amount).toFixed(2));
+          continue;
+        }
+        if (to !== '' && date > to) continue;
+        paidTotal = Number((paidTotal + amount - unapplied).toFixed(2));
+        const rawAllocations = row.allocations as unknown;
+        const allocations =
+          typeof rawAllocations === 'string' ? JSON.parse(rawAllocations) : (rawAllocations as unknown[]);
+        statementLines.push({
+          id: `pmt-${String(row.id)}`,
+          kind: 'payment',
+          date,
+          reference: String(row.payment_no),
+          debit: 0,
+          credit: amount,
+          method: String(row.method),
+          note: String(row.reference ?? ''),
+          allocations: allocations ?? [],
+          status: 'posted',
+        });
+      }
+
+      statementLines.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+      let running = opening;
+      const lines = statementLines.map((line) => {
+        running = Number((running + Number(line.debit) - Number(line.credit)).toFixed(2));
+        return { ...line, balance: running };
+      });
+
+      return {
+        customer: {
+          id: String(customer.id),
+          nameAr: String(customer.name_ar ?? ''),
+          nameEn: String(customer.name_en ?? ''),
+          creditLimit: decToNumber(dec(String(customer.credit_limit ?? 0), 2)),
+          creditDays: Number(customer.credit_days ?? 0),
+          status: String(customer.status),
+        },
+        from: from || null,
+        to: to || null,
+        openingBalance: opening,
+        invoiced,
+        paid: paidTotal,
+        closingBalance: running,
+        lines,
+      };
+    });
+  }
+
   // ------------------------------------------------------------- invoices
   async createInvoice(
     context: M1Context,

@@ -71,6 +71,54 @@ export const handleM1 = async (request: Request, deps: M1Deps): Promise<Response
   };
 
   try {
+    // --------------------------------------------------------- read models
+    if (path === '/api/m1/accounts' && method === 'GET') {
+      const context = await guarded(2);
+      if (context instanceof Response) return context;
+      return json({ accounts: await service.listAccounts(context), storage: 'postgres' });
+    }
+
+    if (path === '/api/m1/customers' && method === 'GET') {
+      const context = await guarded(2);
+      if (context instanceof Response) return context;
+      const customers = await service.listCustomers(context);
+      return json({ customers, total: customers.length, storage: 'postgres' });
+    }
+
+    if (path === '/api/m1/invoices' && method === 'GET') {
+      const context = await guarded(2);
+      if (context instanceof Response) return context;
+      const invoices = await service.listInvoices(context, {
+        ...(url.searchParams.get('status') ? { status: url.searchParams.get('status') ?? '' } : {}),
+        ...(url.searchParams.get('customerId') ? { customerId: url.searchParams.get('customerId') ?? '' } : {}),
+        limit: url.searchParams.get('limit') ? num(url.searchParams.get('limit')) : undefined,
+      });
+      return json({ invoices, total: invoices.length, storage: 'postgres' });
+    }
+
+    if (path === '/api/m1/payments' && method === 'GET') {
+      const context = await guarded(2);
+      if (context instanceof Response) return context;
+      const payments = await service.listPayments(
+        context,
+        url.searchParams.get('limit') ? num(url.searchParams.get('limit')) : 100,
+      );
+      return json({ payments, total: payments.length, storage: 'postgres' });
+    }
+
+    const statementMatch = /^\/api\/m1\/customers\/([^/]+)\/statement$/.exec(path);
+    if (statementMatch && method === 'GET') {
+      const context = await guarded(2);
+      if (context instanceof Response) return context;
+      return json({
+        ...(await service.customerStatement(context, statementMatch[1] ?? '', {
+          ...(url.searchParams.get('from') ? { from: url.searchParams.get('from') ?? '' } : {}),
+          ...(url.searchParams.get('to') ? { to: url.searchParams.get('to') ?? '' } : {}),
+        })),
+        storage: 'postgres',
+      });
+    }
+
     // ------------------------------------------------------------- journal
     if (path === '/api/m1/journal' && method === 'GET') {
       const context = await guarded(2);
