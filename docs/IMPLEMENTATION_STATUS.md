@@ -5,7 +5,8 @@ Status vocabulary (from the master specification §3): **IMPLEMENTED AND VERIFIE
 **INTEGRATION READY**, **BLOCKED**, **NOT IMPLEMENTED**, **NOT TESTED**.
 
 Evidence column names the file or command that supports the claim. "Verified" always means a
-test or command that was actually executed at commit `5f90ccc`.
+test or command that was actually executed at the Phase 2 closure tip `978c7d1` (plus the
+closure commit that added the rule catalogue screen).
 
 ## Platform
 
@@ -28,19 +29,19 @@ test or command that was actually executed at commit `5f90ccc`.
 | # | Module | Status | Reality |
 |---|---|---|---|
 | 1 | Sales and CRM | NOT IMPLEMENTED | no leads/opportunities/quotations tables or screens |
-| 2 | Customers and projects | IMPLEMENTED (customers) / NOT IMPLEMENTED (projects) | `customers` table + API + Excel template; no `projects` table |
+| 2 | Customers and projects | IMPLEMENTED AND VERIFIED | `customers` table + API + Excel template; `projects` table, service, API and screen (`tests/m1/b1.projects.orders.test.ts`) |
 | 3 | Quotations and contracts | NOT IMPLEMENTED | — |
-| 4 | Orders and scheduling | TEMPLATE ONLY | `orders` import template validates credit/volume; no order table, no scheduling |
-| 5 | Mix designs | TEMPLATE ONLY | template + workbook sheet with yield/W-C checks; no mix tables |
-| 6 | Production and batching | DEMO ONLY | demo dataset batches feed dashboard KPIs; no tables, no batching |
-| 7 | Quality and laboratory | DEMO ONLY | demo quality tests in dashboard summary; no lab tables |
+| 4 | Orders and scheduling | IMPLEMENTED AND VERIFIED | `orders` table, service, API and screen with lifecycle transitions; scheduling is order-level only, no plant calendar |
+| 5 | Mix designs | IMPLEMENTED AND VERIFIED | migration `0013`, versioned designs, approved-version immutability, `src/core/mixDesign.ts`, API, screen, `tests/m2/*`, `tests/mixDesign.test.ts` |
+| 6 | Production and batching | IMPLEMENTED AND VERIFIED | migration `0014`, batch lifecycle, components, moisture validity, completion immutability, overrides, API, screen, `tests/m3/batching.test.ts` |
+| 7 | Quality and laboratory | IMPLEMENTED AND VERIFIED | migration `0015`, tests/specimens/NCR/CAPA/certificates, calibration hold, API, screens, `tests/m4/quality.test.ts` |
 | 8 | Materials and inventory | TEMPLATE ONLY (+ demo dataset) | import of materials + opening balances; balances still demo-side |
 | 9 | Procurement and suppliers | IMPLEMENTED AND VERIFIED | PO/GRN/bill/three-way match tables + service + PostgreSQL tests |
-| 10 | Fleet and dispatch | TEMPLATE ONLY | `fleet` import template + demo trucks; no fleet tables |
-| 11 | Drivers and trips | DEMO ONLY | demo trips drive on-time KPI; no tables |
+| 10 | Fleet and dispatch | IMPLEMENTED AND VERIFIED | migration `0016`, trucks/drivers/assignments/trips/maintenance/GPS/overrides, one-open-trip index, API, screens, `tests/m5/fleet.test.ts` |
+| 11 | Drivers and trips | IMPLEMENTED AND VERIFIED | `drivers` and `trips` tables with lifecycle, licence gate, volumes, site wait and difference reason; `tests/m5/fleet.test.ts` |
 | 12 | Delivery tickets / POD | NOT IMPLEMENTED | — |
 | 13 | Pumps and pumping jobs | NOT IMPLEMENTED | — |
-| 14 | Maintenance and spare parts | DEMO ONLY | demo maintenance orders appear in balance; no tables |
+| 14 | Maintenance and spare parts | IMPLEMENTED (truck maintenance) / NOT IMPLEMENTED (spare parts) | `truck_maintenance` open/close with odometer and cost, status gate tested; no parts inventory or work orders |
 | 15 | Weighbridge | NOT IMPLEMENTED | no adapter, no hardware path |
 | 16 | Accounting and finance | IMPLEMENTED AND VERIFIED (backend) / NOT IMPLEMENTED (screens) | journal, trial balance, AR/AP, treasury, assets, loans, procurement services with PostgreSQL tests; **no accounting UI** |
 | 17 | HR and payroll | TEMPLATE ONLY | `employees` template; payroll not implemented |
@@ -54,25 +55,39 @@ test or command that was actually executed at commit `5f90ccc`.
 | 25 | Notifications | NOT IMPLEMENTED | no provider, no queue |
 | 26 | Forecasting and governed AI | NOT IMPLEMENTED | no model, no forecast data |
 
+## Phase 2 core (M2–M5) — status at the closure tip
+
+| Item | Status | Evidence |
+|---|---|---|
+| M1 accounting service layer | IMPLEMENTED AND VERIFIED | migrations `0002`–`0011`, `server/services/m1.ts`, `/api/m1/*`, PostgreSQL tests; screens for invoices/payments/statement/ledger |
+| M2 Mix Design | IMPLEMENTED AND VERIFIED | `0013`, `src/core/mixDesign.ts`, API, `MixDesignsPage`, 17 tests in `tests/m2` + `tests/mixDesign.test.ts` |
+| M3 Batching | IMPLEMENTED AND VERIFIED | `0014`, `src/core/batching.ts`, API, `BatchListPage`/`BatchDetailPage`, 15 tests |
+| M4 Quality/Lab | IMPLEMENTED AND VERIFIED | `0015`, `src/core/quality.ts`, API, quality/NCR screens, 13 tests |
+| M5 Fleet/Dispatch | IMPLEMENTED AND VERIFIED | `0016`, `src/core/fleet.ts`, API, fleet/dispatch/trip screens, 15 tests |
+| Mix-design version editor UI | BLOCKED (deferred) | service/API support exists; no screen for editing a draft version |
+| ECP catalogue UI | IMPLEMENTED AND VERIFIED | `src/pages/RuleCataloguePage.tsx`, `/api/rules`; shows missing value/source, level-5 edit requires a source note; route/nav/label tests |
+| Browser/rendering tests | NOT TESTED | no browser or automation in this environment |
+| GitHub remote | NOT TESTED | no authenticated remote or push was used |
+
 ## Phase 1 acceptance gate (spec §57)
 
 | # | Criterion | Status |
 |---|---|---|
-| 1 | Implemented routes load without runtime errors | IMPLEMENTED BUT NOT FULLY VERIFIED (no browser automation available; covered by build + API tests) |
-| 2 | Active navigation leads to valid destinations | IMPLEMENTED AND VERIFIED (unit-tested page keys, no dead menu entries) |
-| 3 | Visible actions work or are disabled with an explanation | IMPLEMENTED AND VERIFIED for Phase 1 actions; later-module buttons are absent rather than fake |
-| 4 | Consistent customer data model | IMPLEMENTED AND VERIFIED |
-| 5 | Lists/details/reports share one source | IMPLEMENTED AND VERIFIED | postgres mode reads tenant tables under RLS for dashboard, reports and customers; demo mode reads the labelled demo dataset (`tests/m1/dataset.readmodel.test.ts`, `tests/m1/readmodel.http.test.ts`) |
-| 6 | Creating/editing a customer updates all views | PARTIAL — customer creation only via Excel import commit (demo adapter); no edit screen |
-| 7 | Dashboard metrics derived from data | IMPLEMENTED AND VERIFIED (`tests/seed.test.ts`) |
-| 8 | Synthetic demo data clearly identified | IMPLEMENTED AND VERIFIED |
-| 9 | CSV import with validation and preview | IMPLEMENTED AND VERIFIED |
-| 10 | Imports do not silently overwrite/duplicate | IMPLEMENTED AND VERIFIED (duplicate detection + explicit commit) |
-| 11 | Excel generator creates a genuine XLSX | IMPLEMENTED AND VERIFIED |
-| 12 | Unsupported features documented | this file + `docs/ISSUES_AND_GAPS.md` |
-| 13 | Tests executed and recorded | 140 TS + 28 Python executed at `5f90ccc` |
-| 14 | Known issues documented | `docs/ISSUES_AND_GAPS.md` |
-| 15 | No later-phase feature presented as operational | enforced by this matrix |
+| 1 | Implemented routes load without runtime errors | **PARTIAL** — build and route smoke tests pass; no browser exists to load a route |
+| 2 | Active navigation leads to valid destinations | **PASS** — every nav item is a registered page and every page is in nav (`tests/routes.smoke.test.ts`) |
+| 3 | Visible actions work or are disabled with an explanation | **PASS** — actions call real endpoints; unavailable actions are absent; RBAC hides disallowed controls |
+| 4 | Consistent customer data model | **PASS** — one `customers` table for API, import and read models |
+| 5 | Lists/details/reports share one source | **PASS** — postgres read models under RLS; `tests/m1/dataset.readmodel.test.ts`, `tests/m1/readmodel.http.test.ts` |
+| 6 | Creating/editing a customer updates all views | **PARTIAL** — creation via Excel import updates all read models; no create/edit screen |
+| 7 | Dashboard metrics derived from data | **PASS** — `tests/seed.test.ts`, `tests/m1/dataset.readmodel.test.ts`; Phase 2 tables feed batch/quality/dispatch figures |
+| 8 | Synthetic demo data clearly identified | **PASS** — demo mode banner and synthetic flags |
+| 9 | CSV import with validation and preview | **PASS** — `tests/m1/b2.csv.staging.test.ts` |
+| 10 | Imports do not silently overwrite/duplicate | **PASS** — checksum duplicate rejection and explicit commit |
+| 11 | Excel generator creates a genuine XLSX | **PASS** — 28 Python tests executed in Phase 1; not re-run in Phase 2 |
+| 12 | Unsupported features documented | **PASS** — this file, `ISSUES_AND_GAPS.md`, `PHASE2_CLOSURE_REPORT.md` |
+| 13 | Tests executed and recorded | **PASS** — 324 pass / 0 fail / 0 skip at the closure tip |
+| 14 | Known issues documented | **PASS** — `ISSUES_AND_GAPS.md`, closure report item 14 |
+| 15 | No later-phase feature presented as operational | **PASS** — status matrix separates implemented, deferred, blocked and not tested |
 
 ## Gap closure (revision after review)
 
@@ -88,9 +103,10 @@ Database-backed read models currently cover: company, plants, customers + credit
 suppliers, invoices + payment allocations, supplier bills, cash, bank accounts and
 transactions, cheques, fixed assets, loans and installment schedules.
 
-Still empty in postgres mode because no tables exist: materials/inventory, batches, trucks,
-trips, quality tests, salary payments, rentals, utilities, maintenance. KPI cards that depend
-on them show zero — deliberately, instead of demo numbers.
+Still empty in postgres mode because no tables exist: materials/inventory, spare parts, salary
+payments, rentals, utilities and pumps. Mix designs, batches, moisture readings, quality tests,
+trucks, drivers, trips and truck maintenance now exist and are read under RLS; KPI cards that
+depend on the missing tables still show an explicit state rather than demo numbers.
 
 ## UI verification limits
 

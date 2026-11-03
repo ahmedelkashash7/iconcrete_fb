@@ -22,6 +22,7 @@ const BatchListPage = lazy(() => import('./pages/BatchListPage').then((m) => ({ 
 const QualityListPage = lazy(() => import('./pages/QualityListPage').then((m) => ({ default: m.QualityListPage })));
 const FleetListPage = lazy(() => import('./pages/FleetListPage').then((m) => ({ default: m.FleetListPage })));
 const DispatchBoardPage = lazy(() => import('./pages/DispatchBoardPage').then((m) => ({ default: m.DispatchBoardPage })));
+const RuleCataloguePage = lazy(() => import('./pages/RuleCataloguePage').then((m) => ({ default: m.RuleCataloguePage })));
 const ExcelCenterPage = lazy(() => import('./pages/ExcelCenterPage').then((m) => ({ default: m.ExcelCenterPage })));
 const DesignSystemPage = lazy(() => import('./pages/DesignSystemPage').then((m) => ({ default: m.DesignSystemPage })));
 const InvoicesPage = lazy(() => import('./pages/LedgerPages').then((m) => ({ default: m.InvoicesPage })));
@@ -106,6 +107,8 @@ export const App = () => {
             <FleetListPage />
           ) : page === 'dispatch' ? (
             <DispatchBoardPage />
+          ) : page === 'rules' ? (
+            <RuleCataloguePage />
           ) : page === 'invoices' ? (
             <InvoicesPage />
           ) : page === 'payments' ? (

@@ -12,7 +12,7 @@ const NAV_GROUPS: Array<{ key: string; pages: PageKey[] }> = [
   { key: 'nav.overview', pages: ['dashboard', 'reports'] },
   { key: 'nav.data', pages: ['customers', 'projects', 'orders', 'mixDesigns', 'batches', 'quality', 'fleet', 'dispatch', 'excelCenter'] },
   { key: 'nav.accounting', pages: ['invoices', 'payments', 'statement', 'ledger'] },
-  { key: 'nav.admin', pages: ['plants', 'users', 'audit', 'settings', 'designSystem'] },
+  { key: 'nav.admin', pages: ['plants', 'users', 'rules', 'audit', 'settings', 'designSystem'] },
 ];
 
 const PageIcon = ({ page }: { page: PageKey }) => {

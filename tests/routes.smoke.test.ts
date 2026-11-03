@@ -27,6 +27,7 @@ const EXPECTED_EXPORT: Record<string, string> = {
   quality: 'QualityListPage',
   fleet: 'FleetListPage',
   dispatch: 'DispatchBoardPage',
+  rules: 'RuleCataloguePage',
   invoices: 'InvoicesPage',
   payments: 'PaymentsPage',
   statement: 'StatementPage',
@@ -50,6 +51,7 @@ const MODULES: Record<string, Record<string, unknown>> = {
   quality: await import('../src/pages/QualityListPage'),
   fleet: await import('../src/pages/FleetListPage'),
   dispatch: await import('../src/pages/DispatchBoardPage'),
+  rules: await import('../src/pages/RuleCataloguePage'),
   invoices: await import('../src/pages/LedgerPages'),
   payments: await import('../src/pages/LedgerPages'),
   statement: await import('../src/pages/LedgerPages'),
@@ -158,6 +160,7 @@ describe('route and navigation smoke', () => {
       ['/api/fleet/assignments', 'POST'],
       ['/api/fleet/trips/TRP-0001', 'GET'],
       ['/api/fleet/maintenance', 'GET'],
+      ['/api/rules', 'GET'],
     ];
     const unresolved: string[] = [];
     for (const [path, method] of routes) {
