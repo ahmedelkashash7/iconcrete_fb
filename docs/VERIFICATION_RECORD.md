@@ -183,3 +183,26 @@ carries no value and no source note from it; every seeded rule therefore evaluat
 was invented anywhere in the change.
 
 Not executed here: browser/E2E, screen reader, deployment, push.
+
+---
+
+# Verification record — M2 mix design (2026-11-03)
+
+| Step | Command | Result |
+|---|---|---|
+| Typecheck | `bun run typecheck` | 0 errors |
+| Unit/API/DB tests | `bun test` | **280 pass, 0 fail, 0 skip**, 33 files, 3,787 expectations |
+| New M2 tests | `bun test tests/mixDesign.test.ts tests/m2/mixDesign.db.test.ts tests/m2/mixDesign.http.test.ts` | 26 pass — every check classification, missing source/class → `approval_required`, lifecycle transitions, service and SQL immutability, override with all five fields, override without reason refused, level guards 1/4/5, tenant isolation |
+| Migration | `bun run db:migrate` on a fresh database | `applied: 0013_mix_design.sql`; 56 tables, 52 with RLS |
+| Seed idempotency | `bun run db:seed` (via gate) | succeeds after reordering company cleanup so mix rows are deleted before the plants they reference |
+| Schema docs | `bun run schema:docs` | `docs/DATA_DICTIONARY.md` regenerated (1,650 lines) |
+| Build | `bun run build` | success; entry 304.13 kB (93.48 kB gzip) |
+| Full gate | `bash scripts/verify.sh` | `pass=280 fail=0 skip=0 typecheck/build/pytest/generator=ok` |
+| Restore drill | `bash scripts/backup-restore-drill.sh` | `DRILL PASSED: 56 tables, 52 RLS tables, 6 users, 1 audit rows restored and verified.` |
+
+ECP 203-2007 values remain **not specified in the supplied reference**: every seeded mix rule
+still evaluates unconfigured and is marked configurable in the UI, so no clause or number was
+invented. `tests/rbac.test.ts` now expects `mixDesigns` for a level-1 viewer, because the M2
+scope sets read at level 1 while writes stay at 4 and approval at 5.
+
+Not executed here: browser/E2E, screen reader, LibreOffice recalculation, deployment, push.

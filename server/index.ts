@@ -36,6 +36,7 @@ import { readStorageSettings, type StorageMode, type StorageSettings } from './d
 import { handleM1, postgresRequired } from './api/m1';
 import { handleB1 } from './api/b1';
 import { handleRules } from './api/rules';
+import { handleMixDesigns } from './api/mixDesigns';
 import { handleCsv } from './api/csv';
 import type { Customer, DemoDataset, InventoryItem, Lang, Material, RoleLevel } from '../src/types';
 
@@ -1131,6 +1132,18 @@ export const createApp = async (
       if (path === '/api/rules' || path.startsWith('/api/rules/')) {
         return (
           (await handleRules(request, {
+            db,
+            auth: async (req, minLevel) => {
+              const session = await sessionFor(req, minLevel);
+              return session.ok ? { ok: true, user: session.user } : session;
+            },
+          })) ?? fail(404, 'not_found')
+        );
+      }
+
+      if (path === '/api/mix-designs' || path.startsWith('/api/mix-designs/')) {
+        return (
+          (await handleMixDesigns(request, {
             db,
             auth: async (req, minLevel) => {
               const session = await sessionFor(req, minLevel);

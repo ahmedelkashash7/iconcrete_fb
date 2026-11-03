@@ -9,7 +9,7 @@ and M4 (quality) were **not** started.
 ### Storage and security
 - Explicit storage modes `demo` / `test` / `postgres` with hard failure, no fallback.
 - 48 tables, 4 migrations, checksum-verified runner, seed/reset/status CLI.
-- RLS forced on 48 tenant tables, tenant + plant policies, transaction-scoped context.
+- RLS forced on 52 tenant tables, tenant + plant policies, transaction-scoped context.
 - Deferred-commit balance trigger, posted-entry and posted-line immutability.
 - `numeric(18,2)` money everywhere; UUID/text identifiers; soft delete; `version` column;
   `created_at` / `updated_at` / `created_by` fields.

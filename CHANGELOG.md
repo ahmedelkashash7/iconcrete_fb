@@ -3,6 +3,35 @@
 All notable changes to ICONCRETE (IConcrete-fp). Format based on Keep a Changelog;
 versions follow Semantic Versioning.
 
+## [M2 — mix design] — 2026-11-03
+
+### Added
+
+- Migration `0013_mix_design.sql`: `mix_designs` (unique code per company, plant scoped),
+  `mix_design_versions` (draft → submitted → approved → superseded, `immutable` derived from
+  status), `mix_components` and `mix_strength_tests`. Content of an approved or superseded
+  version cannot change: the repository refuses it and a trigger refuses it to direct SQL.
+- Pure engine `src/core/mixDesign.ts`: the five M2 checks with their §26 classifications
+  (positive qty → mandatory_failure, unknown strength class → approval_required, missing
+  source note → approval_required, duplicate code → mandatory_failure, editing an approved
+  version → mandatory_failure) plus the lifecycle transition table. No database, no IO.
+- Repository and API: reads from level 1, draft writes and submission at level 4, approval
+  and supersede at level 5. Superseding an approved version records the override of
+  `mix.approved_version_edit` in `rule_overrides` with actor, reason, decision, rule id and
+  time, and audits `mix.version_superseded`.
+- UI: bilingual mix design screens (catalogue list, detail/create) with draft-only editing,
+  rule checks with classifications, the mix rules card that keeps showing
+  "not specified in the supplied reference" and marks unconfigured values configurable,
+  and an approve button disabled below level 5.
+
+### Tests
+
+- `tests/mixDesign.test.ts` (pure), `tests/m2/mixDesign.db.test.ts` and
+  `tests/m2/mixDesign.http.test.ts`: every check classification, missing value/source →
+  approval_required (never pass), lifecycle transitions, version immutability at both the
+  service and SQL level, override with all five fields, override without a reason refused,
+  level guards (1/4/5) and tenant isolation.
+
 ## [R1 — configurable rule engine] — 2026-11-03
 
 ### Added

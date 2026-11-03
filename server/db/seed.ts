@@ -237,6 +237,11 @@ export const seedDemo = async (db: Db): Promise<SeedResult> => {
       await tx.unsafe(`delete from customers where company_id = $1`, [companyId]);
       await tx.unsafe(`delete from suppliers where company_id = $1`, [companyId]);
       await tx.unsafe(`delete from gl_accounts where company_id = $1`, [companyId]);
+      // Mix designs reference plants, so their rows go first.
+      await tx.unsafe(`delete from mix_strength_tests where company_id = $1`, [companyId]);
+      await tx.unsafe(`delete from mix_components where company_id = $1`, [companyId]);
+      await tx.unsafe(`delete from mix_design_versions where company_id = $1`, [companyId]);
+      await tx.unsafe(`delete from mix_designs where company_id = $1`, [companyId]);
       await tx.unsafe(`delete from users where company_id = $1`, [companyId]);
       await tx.unsafe(`delete from plants where company_id = $1`, [companyId]);
       await tx.unsafe(`delete from rule_evaluations where company_id = $1`, [companyId]);

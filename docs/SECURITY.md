@@ -63,7 +63,7 @@ transaction-scoped `app.audit_purge` flag that request connections never set.
 
 - Every route declares a minimum role level; the API returns `401` for an unauthenticated
   request and `403` for an authenticated one below the level. The UI is not the control.
-- M1 writes run inside `withTenant()`, so PostgreSQL RLS (enabled **and forced** on 48
+- M1 writes run inside `withTenant()`, so PostgreSQL RLS (enabled **and forced** on 52
   tables) applies to the statement, not to a client-supplied filter.
 - Routes still served by the Phase 1 demo dataset answer `403 tenant_data_unavailable` for
   sessions from any other company, so a second tenant cannot read the demo company's

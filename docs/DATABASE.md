@@ -81,7 +81,8 @@ checksum drift — add a new file instead.
 
 ## Row level security
 
-- Enabled **and forced** on 48 tenant tables, including the three rule-engine tables.
+- Enabled **and forced** on 52 tenant tables, including the three rule-engine tables and
+  the four mix-design tables.
 - `rule_evaluations` and `rule_overrides` are append-only for every connection; only
   `db:seed` may purge its own demo evidence, through the transaction-scoped
   `app.rule_purge` flag that request connections never set.
