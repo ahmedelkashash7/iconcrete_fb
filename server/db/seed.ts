@@ -237,7 +237,12 @@ export const seedDemo = async (db: Db): Promise<SeedResult> => {
       await tx.unsafe(`delete from customers where company_id = $1`, [companyId]);
       await tx.unsafe(`delete from suppliers where company_id = $1`, [companyId]);
       await tx.unsafe(`delete from gl_accounts where company_id = $1`, [companyId]);
-      // Mix designs reference plants, so their rows go first.
+      // Mix designs and batching rows reference plants and mix versions, so their rows go
+      // first so db:seed can remove its own demo data without violating FKs.
+      await tx.unsafe(`delete from batch_overrides where company_id = $1`, [companyId]);
+      await tx.unsafe(`delete from moisture_readings where company_id = $1`, [companyId]);
+      await tx.unsafe(`delete from batch_components where company_id = $1`, [companyId]);
+      await tx.unsafe(`delete from batches where company_id = $1`, [companyId]);
       await tx.unsafe(`delete from mix_strength_tests where company_id = $1`, [companyId]);
       await tx.unsafe(`delete from mix_components where company_id = $1`, [companyId]);
       await tx.unsafe(`delete from mix_design_versions where company_id = $1`, [companyId]);
