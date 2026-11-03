@@ -38,7 +38,7 @@ failure, not a fallback. Cost: two adapters to keep behaviourally aligned (auth 
 ## ADR-004 — Row Level Security as the tenant boundary
 
 **Context.** Spec §7/§49 require isolation that survives application bugs.
-**Decision.** RLS **enabled and forced** on 42 tenant tables; company policy plus a
+**Decision.** RLS **enabled and forced** on 48 tenant tables; company policy plus a
 restrictive plant policy; context set with `SET LOCAL` inside `withTenant()`. Tests connect
 as the restricted `iconcrete_app` role, because owners and superusers bypass RLS.
 **Consequences.** A forgotten `WHERE company_id` cannot leak data through the app role.

@@ -157,6 +157,9 @@ export const seedDemo = async (db: Db): Promise<SeedResult> => {
     // entries are likewise immutable except for this transaction-scoped reset flag.
     await tx.unsafe(`select set_config('app.audit_purge', 'on', true)`);
     await tx.unsafe(`select set_config('app.seed_reset', 'on', true)`);
+    // Rule evaluations and overrides are append-only; seeding is the one maintenance
+    // operation allowed to clear its own demo evidence. Request connections never set it.
+    await tx.unsafe(`select set_config('app.rule_purge', 'on', true)`);
 
     // Every table that points at a journal entry must release it before the entry can
     // be removed (FK), for this company only. Discovered from the catalog so a future
@@ -236,6 +239,9 @@ export const seedDemo = async (db: Db): Promise<SeedResult> => {
       await tx.unsafe(`delete from gl_accounts where company_id = $1`, [companyId]);
       await tx.unsafe(`delete from users where company_id = $1`, [companyId]);
       await tx.unsafe(`delete from plants where company_id = $1`, [companyId]);
+      await tx.unsafe(`delete from rule_evaluations where company_id = $1`, [companyId]);
+      await tx.unsafe(`delete from rule_overrides where company_id = $1`, [companyId]);
+      await tx.unsafe(`delete from rule_definitions where company_id = $1`, [companyId]);
       await tx.unsafe(`delete from companies where id = $1`, [companyId]);
     }
   });
@@ -257,6 +263,9 @@ export const seedDemo = async (db: Db): Promise<SeedResult> => {
         [company.id, company.nameAr, company.nameEn, company.taxId],
       );
     }
+
+    // Same catalogue list as migration 0012, through its idempotent SQL function.
+    await tx.unsafe(`select seed_rule_catalogue()`);
 
     await tx.unsafe(
       `insert into plants (id, company_id, name_ar, name_en, city) values

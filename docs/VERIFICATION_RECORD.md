@@ -161,3 +161,25 @@ Not executed: browser/E2E, screen reader, LibreOffice recalculation, any deploym
 | Restore drill | not re-run in this commit | schema unchanged since the B3 drill (49 tables, 45 RLS, 6 users, 1 audit row) |
 
 Not executed here: browser/E2E, screen reader, LibreOffice recalculation, deployment, push.
+
+---
+
+# Verification record — R1 rule engine (2026-11-03)
+
+| Step | Command | Result |
+|---|---|---|
+| Typecheck | `bun run typecheck` | 0 errors |
+| Unit/API/DB tests | `bun test` | **254 pass, 0 fail, 0 skip**, 30 files, 3,454 expectations |
+| New rule tests | `bun test tests/rules.test.ts tests/m1/rules.db.test.ts tests/m1/rules.http.test.ts` | 29 pass — all five classes, missing value/source → `approval_required`, level-5 guard, audited value change, override with all five fields, override without reason refused, append-only, tenant isolation |
+| Migration | `bun run db:migrate` on a fresh database | `applied: 0012_rule_engine.sql`; catalogue 10 rows per company |
+| Seed idempotency | `bun run db:seed` twice | succeeds; `seed_rule_catalogue()` re-populates after the per-company delete |
+| Schema docs | `bun run schema:docs` | `docs/DATA_DICTIONARY.md` regenerated (52 tables) |
+| Full gate | `bash scripts/verify.sh` | `pass=254 fail=0 skip=0 typecheck/build/pytest/generator=ok` |
+| Restore drill | `bash scripts/backup-restore-drill.sh` | `DRILL PASSED: 52 tables, 48 RLS tables, 6 users, 1 audit rows restored and verified.` |
+
+ECP 203-2007 reference: no Code file exists in this repository, so `rule_definitions`
+carries no value and no source note from it; every seeded rule therefore evaluates to
+`approval_required` until a level-5 user records a value and its source. No clause number
+was invented anywhere in the change.
+
+Not executed here: browser/E2E, screen reader, deployment, push.

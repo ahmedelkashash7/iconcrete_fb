@@ -35,6 +35,7 @@ import { createDb, type Db } from './db/client';
 import { readStorageSettings, type StorageMode, type StorageSettings } from './db/mode';
 import { handleM1, postgresRequired } from './api/m1';
 import { handleB1 } from './api/b1';
+import { handleRules } from './api/rules';
 import { handleCsv } from './api/csv';
 import type { Customer, DemoDataset, InventoryItem, Lang, Material, RoleLevel } from '../src/types';
 
@@ -1118,6 +1119,18 @@ export const createApp = async (
       ) {
         return (
           (await handleB1(request, {
+            db,
+            auth: async (req, minLevel) => {
+              const session = await sessionFor(req, minLevel);
+              return session.ok ? { ok: true, user: session.user } : session;
+            },
+          })) ?? fail(404, 'not_found')
+        );
+      }
+
+      if (path === '/api/rules' || path.startsWith('/api/rules/')) {
+        return (
+          (await handleRules(request, {
             db,
             auth: async (req, minLevel) => {
               const session = await sessionFor(req, minLevel);

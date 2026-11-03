@@ -81,7 +81,10 @@ checksum drift — add a new file instead.
 
 ## Row level security
 
-- Enabled **and forced** on 42 tenant tables.
+- Enabled **and forced** on 48 tenant tables, including the three rule-engine tables.
+- `rule_evaluations` and `rule_overrides` are append-only for every connection; only
+  `db:seed` may purge its own demo evidence, through the transaction-scoped
+  `app.rule_purge` flag that request connections never set.
 - Tenant policy: `company_id = current_setting('app.company_id')`.
 - Plant policy (restrictive, only on tables that have `plant_id`):
   `plant_id is null or plant_id = any(current_setting('app.plant_ids'))`.

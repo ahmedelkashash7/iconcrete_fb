@@ -3,6 +3,34 @@
 All notable changes to ICONCRETE (IConcrete-fp). Format based on Keep a Changelog;
 versions follow Semantic Versioning.
 
+## [R1 — configurable rule engine] — 2026-11-03
+
+### Added
+
+- Migration `0012_rule_engine.sql`: `rule_definitions` (per company, with `value`, `unit`,
+  `source_note`, `approved_by`, `effective_from`), plus append-only `rule_evaluations` and
+  `rule_overrides`. `seed_rule_catalogue()` seeds ten unconfigured rules per company for
+  both demo tenants; no numeric limit is invented, because the ECP 203-2007 Code file is
+  not in the repository.
+- Pure rule engine `src/core/rules.ts`: the §26 classes (`warning`, `mandatory_failure`,
+  `approval_required`, `engineering_hold`, `authorized_override`), `evaluateRule` and
+  `validateOverride` with no DB, no IO and no clock.
+- Behaviour contract: a rule with no value or no source note evaluates to
+  `approval_required` — never a pass, never a silent default; the engine never rewrites a
+  measured value; an override needs actor, reason, rule id and decision before any row
+  exists.
+- Rule API `server/api/rules.ts`: `GET /api/rules` catalogue (level 2) reporting
+  `not specified in the supplied reference` where no value exists, `GET /api/rules/:code`,
+  `PUT/PATCH /api/rules/:code` (level 5 only, audited `rule.value_changed`) and
+  `POST /api/rules/:code/override` (level 4, audited `rule.overridden`).
+
+### Tests
+
+- `tests/rules.test.ts` (pure) and `tests/m1/rules.db.test.ts` / `tests/m1/rules.http.test.ts`
+  (postgres): every classification outcome, missing value/source → `approval_required`,
+  level-5 guard with audited before/after, override row with all five fields, override
+  without a reason refused, append-only enforcement, tenant isolation.
+
 ## [Phase 2 — M1 security remediation] — 2026-10-29
 
 ### Added

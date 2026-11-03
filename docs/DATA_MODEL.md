@@ -2,7 +2,7 @@
 
 Source of truth for the schema is `db/migrations/*.sql`. This file describes the model
 those files actually create — 49 base tables at migration `0011` (verified by the restore
-drill: 49 tables, 45 with RLS). It does not describe planned tables, except where explicitly
+drill: 52 tables, 48 with RLS). It does not describe planned tables, except where explicitly
 marked `NOT IMPLEMENTED`.
 
 ## Organizational scope
@@ -51,7 +51,7 @@ one-sided check, `line_no`), `customers`, `customer_credit_limits`, `suppliers`,
    `COMMIT`.
 2. `protect_posted_entry` / `protect_posted_lines` make posted entries immutable except the
    single `posted → reversed` link.
-3. RLS (`tenant_isolation` + restrictive `plant_scope`) on 42 tables, forced.
+3. RLS (`tenant_isolation` + restrictive `plant_scope`) on 48 tables, forced.
 4. `trg_audit_append_only` rejects `UPDATE`/`DELETE` on `audit_log` (maintenance bypass only).
 5. Every monetary column is `numeric`; no floating-point money exists in the schema.
 
