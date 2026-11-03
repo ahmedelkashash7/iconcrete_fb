@@ -25,6 +25,8 @@ const EXPECTED_EXPORT: Record<string, string> = {
   mixDesigns: 'MixDesignsPage',
   batches: 'BatchListPage',
   quality: 'QualityListPage',
+  fleet: 'FleetListPage',
+  dispatch: 'DispatchBoardPage',
   invoices: 'InvoicesPage',
   payments: 'PaymentsPage',
   statement: 'StatementPage',
@@ -46,6 +48,8 @@ const MODULES: Record<string, Record<string, unknown>> = {
   mixDesigns: await import('../src/pages/MixDesignsPage'),
   batches: await import('../src/pages/BatchListPage'),
   quality: await import('../src/pages/QualityListPage'),
+  fleet: await import('../src/pages/FleetListPage'),
+  dispatch: await import('../src/pages/DispatchBoardPage'),
   invoices: await import('../src/pages/LedgerPages'),
   payments: await import('../src/pages/LedgerPages'),
   statement: await import('../src/pages/LedgerPages'),
@@ -140,6 +144,23 @@ describe('route and navigation smoke', () => {
     for (const [path, method] of routes) {
       // 401 (anonymous) or 503 (durable store required) both prove the route is owned
       // and gated by the API; a 404 would mean it was swallowed by the fallback.
+      const code = await status(path, method);
+      if (code !== 401 && code !== 503) unresolved.push(`${method} ${path} -> ${code}`);
+    }
+    expect(unresolved).toEqual([]);
+  });
+
+  test('fleet read, assign, trip and maintenance routes are mounted', async () => {
+    const routes: Array<[string, string]> = [
+      ['/api/fleet/trucks', 'GET'],
+      ['/api/fleet/drivers', 'GET'],
+      ['/api/fleet/assignments', 'GET'],
+      ['/api/fleet/assignments', 'POST'],
+      ['/api/fleet/trips/TRP-0001', 'GET'],
+      ['/api/fleet/maintenance', 'GET'],
+    ];
+    const unresolved: string[] = [];
+    for (const [path, method] of routes) {
       const code = await status(path, method);
       if (code !== 401 && code !== 503) unresolved.push(`${method} ${path} -> ${code}`);
     }

@@ -260,3 +260,44 @@ slump/temperature bands are catalogue rules seeded with no value, and an unconfi
 `approval_required` — never a pass. No clause number or limit was invented.
 
 Not executed here: browser/E2E, screen reader, LibreOffice recalculation, deployment, push.
+
+---
+
+# Verification record — M5 fleet and dispatch (2026-11-03)
+
+| Step | Command | Result |
+|---|---|---|
+| Typecheck | `bun run typecheck` | 0 errors |
+| Migration on a fresh database | `bun run db:migrate` against a newly created database | `applied: 0001_m1_organization.sql … 0016_fleet.sql`; `skipped: none` |
+| Seed | `bun run db:seed` | succeeds; the fleet catalogue is inserted per company |
+| New M5 tests | `bun test tests/m5/fleet.test.ts` | 15 pass — 6 pure rules/lifecycles + 9 database scenarios (maintenance block, second open trip, licence renewal, over-capacity and soft-limit warning, volume band override, one-transaction cancel, retired truck, cross-plant, tenant/plant isolation) |
+| Unit/API/DB tests | `bun test` (with `DATABASE_URL` and `ICONCRETE_RLS_URL`) | **324 pass, 0 fail**, 36 files |
+| Data dictionary | `bun run schema:docs` | regenerated from the live schema, 2,233 lines |
+| Build | `bun run build` | success; entry 339.25 kB (101.98 kB gzip), `DispatchBoardPage` 15.20 kB |
+
+M5 adds seven tables (`trucks`, `drivers`, `dispatch_assignments`, `trips`, `truck_maintenance`,
+`gps_positions`, `dispatch_overrides`) with tenant RLS and restrictive plant policies on every
+plant-scoped table. `trips_open_per_truck_idx` is a partial unique index on
+`(company_id, truck_id)` for `planned|departed|arrived`, so a second open trip is refused by
+PostgreSQL and not only by the service; `truck_retired_terminal()` makes `retired` terminal.
+Cancelling an assignment aborts its open trip and releases the truck in one transaction, and
+recording a return closes the assignment and returns the truck to `available` in the same call.
+
+Capacity, serviceability, licence validity, plant scope and the single-open-trip rule are
+`mandatory_failure`; a delivered-versus-loaded difference beyond the configured band is
+`approval_required` and is only released by a `dispatch_overrides` row carrying rule, entity,
+actor, reason and decision. Soft load, drum age and site wait are `warning`: each is evaluated
+only when its catalogue entry has both a value and a source note, and the warning is written to
+the audit row rather than blocking the dispatch. A manual GPS correction requires an actor and a
+reason (`authorized_override`).
+
+ECP 203-2007 values remain **not specified in the supplied reference**: `fleet.volume_difference_band`,
+`fleet.load_soft_limit_pct`, `fleet.site_wait_threshold`, `fleet.drum_age_minutes` and
+`fleet.licence_grace_days` are seeded with no value and no source note. An unconfigured volume
+band never passes (`approval_required`), the licence grace period has no default, and the three
+warning rules are skipped until configured — no limit was invented and nothing auto-passes.
+
+Access is enforced by role level: read 1, propose/confirm/dispatch/trip updates 3, driver records
+3 (personal data; no export endpoint exists yet), cancel/maintenance/override 4, retire 5.
+
+Not executed here: browser/E2E, screen reader, LibreOffice recalculation, deployment, push.

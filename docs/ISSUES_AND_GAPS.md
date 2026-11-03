@@ -154,3 +154,25 @@ statement with the requested id in `meta.extra`. Covered by the second-tenant te
 - Still open: the quality screens pass the route/nav/label tests but were **not rendered in a
   browser** (G6). Equipment calibration is recorded through the API; there is no calibration
   screen. The R1 rule-value editor and the ITP schedules from the plan are not implemented.
+
+## Update — 2026-11-03 (M5 fleet and dispatch)
+
+- **Fleet tables exist now.** `trucks`, `drivers`, `dispatch_assignments`, `trips`,
+  `truck_maintenance`, `gps_positions` and `dispatch_overrides` are migrated with tenant and
+  plant RLS, so the dashboard's dispatch figures can read tenant rows instead of a hard zero.
+- **One open trip per truck is a database rule.** `trips_open_per_truck_idx` is partial on
+  `planned|departed|arrived`, so a duplicate dispatch is refused even if the service is bypassed.
+  `truck_retired_terminal()` refuses any status change away from `retired`.
+- **Rule values stay configurable.** The volume band, soft-load limit, site-wait threshold, drum
+  age and licence grace are catalogue entries seeded with no value and no source note. An
+  unconfigured volume band is `approval_required`; the grace period has no default; the three
+  warning rules are skipped (`warning` only once configured) rather than blocking dispatch.
+- **Evidence for a difference is a row, not a flag.** A delivery outside the band needs a
+  `dispatch_overrides` record with rule, entity, actor, reason and decision; the trip stores the
+  human reason as well.
+- Still open: the fleet and dispatch screens pass the route/nav/label tests but were **not
+  rendered in a browser** (G6). Truck and driver master data are created through
+  `POST /api/fleet/trucks` and `POST /api/fleet/drivers`; the screens list, filter, renew a
+  licence and retire, but do not offer a create form. Driver personal-data export (level 4) and
+  a GPS position map are not implemented. The R1 rule-value editor and ITP schedules remain
+  unbuilt.
