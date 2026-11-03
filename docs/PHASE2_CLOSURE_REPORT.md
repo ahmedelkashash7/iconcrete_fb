@@ -299,6 +299,38 @@ extended further until that verification exists.
 Criterion 1 stays PARTIAL until a real browser loads the routes. It is not reported as PASS on
 the strength of build output alone.
 
+## Closure verification addendum (folded into the Phase 3 plan commit)
+
+Backup/restore drill at this tip:
+
+```
+DRILL PASSED: 75 tables, 71 RLS tables, 6 users, 1 audit rows restored and verified.
+```
+
+§57 statuses, exactly one per line:
+
+```
+§57.1 → PARTIAL
+§57.2 → PASS
+§57.3 → PASS
+§57.4 → PASS
+§57.5 → PASS
+§57.6 → PARTIAL
+§57.7 → PASS
+§57.8 → PASS
+§57.9 → PASS
+§57.10 → PASS
+§57.11 → PASS
+§57.12 → PASS
+§57.13 → PASS
+§57.14 → PASS
+§57.15 → PASS
+```
+
+Migration integrity: migrations `0013`–`0016` are forward-only, and no migration file was edited
+after it was applied; `server/db/migrate.ts` refuses a changed applied file with a checksum-drift
+error ("Create a new migration instead of editing history").
+
 ## Optional deferred item closed in this commit
 
 The **ECP rule catalogue UI** is implemented (`src/pages/RuleCataloguePage.tsx`, `/rules`,
