@@ -1,14 +1,27 @@
 /** M3 batching repository. */
 
 import {
+  BATCH_RULE_CODES,
   canTransition,
+  checkAggregateDeviation,
   checkBatchNoUnique,
+  checkCementWaterDeviation,
   checkMixVersionApproved,
   checkMoistureReadingValid,
   checkPlannedVolumePositive,
+  checkScaleCalibrationCurrent,
+  checkYieldOutsideBand,
+  deviationPercent,
+  roleDeviationPercent,
+  type BatchCatalogueKey,
+  type BatchCheck,
   type BatchStatus,
 } from '../../src/core/batching';
-import { MIN_OVERRIDE_REASON } from '../../src/core/rules';
+import {
+  MIN_OVERRIDE_REASON,
+  type RuleClassification,
+  type RuleDefinition,
+} from '../../src/core/rules';
 import type { Db, Executor } from '../db/client';
 import { M1Error } from './m1';
 import type { B1Context } from './projects';
@@ -72,6 +85,7 @@ export interface BatchDetail extends BatchRow {
   components: BatchComponentRow[];
   moisture: MoistureReadingRow[];
   overrides: BatchOverrideRow[];
+  checks: BatchCheck[];
 }
 
 export interface BatchCreatePayload {
@@ -90,6 +104,8 @@ export interface BatchStartPayload {
 export interface BatchCompletePayload {
   actualVolume: number;
   operatorId?: string | null;
+  /** When the scale used for this batch was last calibrated. Absent = no calibration record. */
+  scaleCalibratedAt?: string | null;
   components: {
     materialId: string;
     targetWeight: number | null;
@@ -180,8 +196,67 @@ export class BatchingService {
     });
   };
 
-  get = async (context: B1Context, id: string): Promise<BatchDetail> =>
+  /** Plants the caller may read, for the dispatch filters and the planning form. */
+  plants = async (
+    context: B1Context,
+  ): Promise<{ id: string; name_ar: string; name_en: string }[]> =>
     this.db.withTenant(context.tenant, async (tx) => {
+      const rows = await tx.unsafe<Row>(
+        `select id, coalesce(name_ar, '') as name_ar, coalesce(name_en, '') as name_en
+           from plants
+          where company_id = $1 and deleted_at is null
+          order by id`,
+        [context.tenant.companyId],
+      );
+      return rows.map((row) => ({ id: str(row.id), name_ar: str(row.name_ar), name_en: str(row.name_en) }));
+    });
+
+  /** Approved, effective mix versions a batch may be planned against. */
+  approvedVersions = async (
+    context: B1Context,
+  ): Promise<
+    {
+      id: string;
+      mix_code: string;
+      mix_name_ar: string;
+      mix_name_en: string;
+      version_no: number;
+      strength_class: string;
+    }[]
+  > =>
+    this.db.withTenant(context.tenant, async (tx) => {
+      const rows = await tx.unsafe<Row>(
+        `select mv.id, md.code as mix_code, coalesce(md.name_ar, '') as mix_name_ar,
+                coalesce(md.name_en, '') as mix_name_en, mv.version_no, mv.strength_class
+           from mix_design_versions mv
+           join mix_designs md on md.id = mv.mix_id
+          where mv.company_id = $1 and mv.status = 'approved'
+          order by md.code, mv.version_no desc`,
+        [context.tenant.companyId],
+      );
+      return rows.map((row) => ({
+        id: str(row.id),
+        mix_code: str(row.mix_code),
+        mix_name_ar: str(row.mix_name_ar),
+        mix_name_en: str(row.mix_name_en),
+        version_no: num(row.version_no),
+        strength_class: str(row.strength_class),
+      }));
+    });
+
+  get = async (context: B1Context, id: string): Promise<BatchDetail> =>
+    this.db.withTenant(context.tenant, (tx) => this.readDetail(tx, context, id));
+
+  /**
+   * Reads one batch on the caller's transaction. A write uses this so it returns the record
+   * it just changed; opening a second transaction would not see the uncommitted row.
+   */
+  private readDetail = async (
+    tx: Executor,
+    context: B1Context,
+    id: string,
+  ): Promise<BatchDetail> => {
+    {
       const rows = await tx.unsafe<Row>(
         `select b.id, b.plant_id, coalesce(p.name_ar, '') as plant_name_ar,
                 coalesce(p.name_en, '') as plant_name_en,
@@ -261,8 +336,12 @@ export class BatchingService {
         decided_at: str(r.decided_at),
       }));
 
+      const rules = await loadBatchRules(tx, context.tenant.companyId);
+      batch.checks = checksForBatch(rules, batch, batch.components);
+
       return batch;
-    });
+    }
+  };
 
   /** Level 3: create a planned batch against an approved, effective mix version. */
   create = async (context: B1Context, payload: BatchCreatePayload): Promise<BatchRow> => {
@@ -341,7 +420,7 @@ export class BatchingService {
         mixVersionId: payload.mixVersionId,
         plannedVolume: payload.plannedVolume,
       });
-      return this.get(context, id) as unknown as BatchRow;
+      return this.readDetail(tx, context, id);
     }) as unknown as BatchRow;
   };
 
@@ -358,17 +437,17 @@ export class BatchingService {
         throw new M1Error('invalid_transition', 409, `batch ${id} is ${batch[0].status}`, { from: batch[0].status, to: 'in_progress' });
       }
       await tx.unsafe(
-        `update batches set status = 'in_progress', operator_id = coalesce($4, operator_id), updated_by = $4
+        `update batches set status = 'in_progress', operator_id = coalesce($4, operator_id), updated_by = $3
          where company_id = $1 and id = $2`,
         [context.tenant.companyId, id, context.actor.username, payload.operatorId ?? null],
       );
       await audit(tx, context, 'batch.started', id, { operatorId: payload.operatorId });
-      return this.get(context, id) as unknown as BatchRow;
+      return this.readDetail(tx, context, id);
     }) as unknown as BatchRow;
   };
 
   /** Level 3: complete a batch against an approved, effective version with valid moisture. */
-  complete = async (context: B1Context, id: string, payload: BatchCompletePayload): Promise<BatchRow> => {
+  complete = async (context: B1Context, id: string, payload: BatchCompletePayload): Promise<BatchDetail> => {
     requireLevel(context, 3, 'complete a batch');
     if (payload.actualVolume <= 0) throw new M1Error('validation_error', 422, 'actualVolume must be greater than zero', { field: 'actualVolume' });
 
@@ -428,19 +507,76 @@ export class BatchingService {
         });
       }
 
-      await tx.unsafe(
+      // The four measured rules run through the R1 engine against configured values only.
+      // Anything that is not an explicit pass or warning blocks completion unless a level-4
+      // user has already recorded an approved override for that rule and this batch.
+      const ruleMap = await loadBatchRules(tx, context.tenant.companyId);
+      const checks: BatchCheck[] = [
+        checkCementWaterDeviation(
+          ruleFor(ruleMap, 'cementWaterDeviation'),
+          roleDeviationPercent(payload.components, ['cement', 'water']),
+        ),
+        checkAggregateDeviation(
+          ruleFor(ruleMap, 'aggregateDeviation'),
+          roleDeviationPercent(payload.components, ['aggregate']),
+        ),
+        checkYieldOutsideBand(
+          ruleFor(ruleMap, 'yieldOutsideBand'),
+          deviationPercent(num(b.planned_volume), payload.actualVolume),
+        ),
+        checkScaleCalibrationCurrent(
+          ruleFor(ruleMap, 'scaleCalibrationCurrent'),
+          payload.scaleCalibratedAt ? new Date(payload.scaleCalibratedAt) : null,
+          producedAt,
+        ),
+      ];
+
+      for (const check of checks) {
+        if (check.outcome === 'pass' || check.outcome === 'warning') continue;
+        const overridden = await hasApprovedOverride(
+          tx,
+          context.tenant.companyId,
+          id,
+          BATCH_RULE_CODES[check.key as BatchCatalogueKey] ?? check.key,
+        );
+        if (overridden) continue;
+        throw new M1Error(check.classification, 422, `batch ${id} is blocked by ${check.key}`, {
+          check: check.key,
+          classification: check.classification,
+          outcome: check.outcome,
+          reasonKey: check.reasonKey,
+        });
+      }
+
+      // The status predicate makes the transition a compare-and-set: of two concurrent
+      // completions only one updates a row and the other is refused as an invalid transition.
+      const updated = await tx.unsafe<{ id: string }>(
         `update batches
            set status = 'completed', actual_volume = $4, produced_at = now(), completed_at = now(),
-               operator_id = coalesce($5, operator_id), updated_by = $5
-         where company_id = $1 and id = $2`,
-        [context.tenant.companyId, id, context.actor.username, payload.actualVolume, payload.operatorId ?? null],
+               operator_id = coalesce($5, operator_id), updated_by = $3
+         where company_id = $1 and id = $2 and status = $6
+         returning id`,
+        [
+          context.tenant.companyId,
+          id,
+          context.actor.username,
+          payload.actualVolume,
+          payload.operatorId ?? null,
+          str(b.status),
+        ],
       );
+      if (!updated[0]) {
+        throw new M1Error('invalid_transition', 409, `batch ${id} was completed by another request`, {
+          from: str(b.status),
+          to: 'completed',
+        });
+      }
 
       for (const [index, component] of payload.components.entries()) {
         await tx.unsafe(
           `insert into batch_components (id, company_id, batch_id, material_id, target_weight,
-              actual_weight, unit, tolerance_pct, created_by, updated_by)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)`,
+              actual_weight, unit, tolerance_pct)
+           values ($1,$2,$3,$4,$5,$6,$7,$8)`,
           [
             newId(`BPC${index}`),
             context.tenant.companyId,
@@ -450,7 +586,6 @@ export class BatchingService {
             component.actualWeight,
             component.unit,
             component.tolerancePct,
-            context.actor.username,
           ],
         );
       }
@@ -459,8 +594,13 @@ export class BatchingService {
         actualVolume: payload.actualVolume,
         components: payload.components.length,
         operatorId: payload.operatorId,
+        checks: checks.map((check) => ({
+          key: check.key,
+          classification: check.classification,
+          outcome: check.outcome,
+        })),
       });
-      return this.get(context, id) as unknown as BatchRow;
+      return this.readDetail(tx, context, id);
     });
   };
 
@@ -479,12 +619,12 @@ export class BatchingService {
         throw new M1Error('invalid_transition', 409, `batch ${id} is ${b.status}`, { from: b.status, to: 'held' });
       }
       await tx.unsafe(
-        `update batches set status = 'held', hold_reason = $4, updated_by = $4
+        `update batches set status = 'held', hold_reason = $4, updated_by = $3
          where company_id = $1 and id = $2`,
         [context.tenant.companyId, id, context.actor.username, reason.trim()],
       );
       await audit(tx, context, 'batch.held', id, { reason: reason.trim() });
-      return this.get(context, id) as unknown as BatchRow;
+      return this.readDetail(tx, context, id);
     }) as unknown as BatchRow;
   };
 
@@ -500,12 +640,12 @@ export class BatchingService {
       if (!b) throw new M1Error('batch_not_found', 404, `batch ${id} does not exist for this company`);
       if (str(b.status) !== 'held') throw new M1Error('invalid_transition', 409, `batch ${id} is ${b.status}`, { from: b.status, to: 'in_progress' });
       await tx.unsafe(
-        `update batches set status = 'in_progress', hold_reason = null, updated_by = $4
+        `update batches set status = 'in_progress', hold_reason = null, updated_by = $3
          where company_id = $1 and id = $2`,
         [context.tenant.companyId, id, context.actor.username],
       );
       await audit(tx, context, 'batch.released', id, {});
-      return this.get(context, id) as unknown as BatchRow;
+      return this.readDetail(tx, context, id);
     }) as unknown as BatchRow;
   };
 
@@ -522,12 +662,12 @@ export class BatchingService {
       if (!b) throw new M1Error('batch_not_found', 404, `batch ${id} does not exist for this company`);
       if (str(b.status) !== 'held') throw new M1Error('invalid_transition', 409, `batch ${id} is ${b.status}`, { from: b.status, to: 'in_progress' });
       await tx.unsafe(
-        `update batches set status = 'in_progress', hold_reason = $4, updated_by = $4
+        `update batches set status = 'in_progress', hold_reason = $4, updated_by = $3
          where company_id = $1 and id = $2`,
         [context.tenant.companyId, id, context.actor.username, reason.trim()],
       );
       await audit(tx, context, 'batch.engineering_hold_released', id, { reason: reason.trim() });
-      return this.get(context, id) as unknown as BatchRow;
+      return this.readDetail(tx, context, id);
     }) as unknown as BatchRow;
   };
 
@@ -550,7 +690,7 @@ export class BatchingService {
         [context.tenant.companyId, id, context.actor.username],
       );
       await audit(tx, context, 'batch.cancelled', id, {});
-      return this.get(context, id) as unknown as BatchRow;
+      return this.readDetail(tx, context, id);
     }) as unknown as BatchRow;
   };
 
@@ -568,7 +708,7 @@ export class BatchingService {
       const id2 = newId('MOI');
       await tx.unsafe(
         `insert into moisture_readings (id, company_id, plant_id, material_id, basis,
-            moisture_pct, absorption_pct, valid_until, entered_by, created_by, updated_by)
+            moisture_pct, absorption_pct, valid_until, entered_by, created_by)
          values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)`,
         [
           id2,
@@ -650,6 +790,76 @@ export class BatchingService {
     });
   };
 }
+
+/** Loads this company's batching rules into the shape the R1 engine consumes. */
+const loadBatchRules = async (
+  tx: Executor,
+  companyId: string,
+): Promise<Map<string, RuleDefinition>> => {
+  const rows = await tx.unsafe<Row>(
+    `select code, classification, value::text as value, unit, source_note, status
+       from rule_definitions
+      where company_id = $1 and module = 'batching'`,
+    [companyId],
+  );
+  const rules = new Map<string, RuleDefinition>();
+  for (const row of rows) {
+    rules.set(str(row.code), {
+      code: str(row.code),
+      module: 'batching',
+      classification: str(row.classification) as RuleClassification,
+      value: row.value === null || row.value === undefined ? null : Number(row.value),
+      unit: str(row.unit),
+      sourceNote: str(row.source_note),
+      status: str(row.status) === 'retired' ? 'retired' : 'active',
+    });
+  }
+  return rules;
+};
+
+const ruleFor = (rules: Map<string, RuleDefinition>, key: BatchCatalogueKey): RuleDefinition | null =>
+  rules.get(BATCH_RULE_CODES[key]) ?? null;
+
+const checksForBatch = (
+  rules: Map<string, RuleDefinition>,
+  batch: { planned_volume: number; actual_volume: number | null },
+  components: readonly BatchComponentRow[],
+): BatchCheck[] => {
+  const measured = components.map((component) => ({
+    materialId: component.material_id,
+    targetWeight: component.target_weight,
+    actualWeight: component.actual_weight,
+  }));
+  return [
+    checkCementWaterDeviation(
+      ruleFor(rules, 'cementWaterDeviation'),
+      roleDeviationPercent(measured, ['cement', 'water']),
+    ),
+    checkAggregateDeviation(
+      ruleFor(rules, 'aggregateDeviation'),
+      roleDeviationPercent(measured, ['aggregate']),
+    ),
+    checkYieldOutsideBand(
+      ruleFor(rules, 'yieldOutsideBand'),
+      deviationPercent(batch.planned_volume, batch.actual_volume),
+    ),
+  ];
+};
+
+const hasApprovedOverride = async (
+  tx: Executor,
+  companyId: string,
+  batchId: string,
+  ruleCode: string,
+): Promise<boolean> => {
+  const rows = await tx.unsafe<{ n: number }>(
+    `select count(*)::int as n
+       from batch_overrides
+      where company_id = $1 and batch_id = $2 and rule_code = $3 and decision = 'approved'`,
+    [companyId, batchId, ruleCode],
+  );
+  return (rows[0]?.n ?? 0) > 0;
+};
 
 const requireLevel = (context: B1Context, min: number, what: string): void => {
   if (context.actor.roleLevel < min) throw new M1Error('forbidden', 403, `only a level-${min} user may ${what}`);

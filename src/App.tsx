@@ -18,6 +18,7 @@ const CustomersPage = lazy(() => import('./pages/CustomersPage').then((m) => ({ 
 const ProjectsPage = lazy(() => import('./pages/ProjectsPage').then((m) => ({ default: m.ProjectsPage })));
 const OrdersPage = lazy(() => import('./pages/OrdersPage').then((m) => ({ default: m.OrdersPage })));
 const MixDesignsPage = lazy(() => import('./pages/MixDesignsPage').then((m) => ({ default: m.MixDesignsPage })));
+const BatchListPage = lazy(() => import('./pages/BatchListPage').then((m) => ({ default: m.BatchListPage })));
 const ExcelCenterPage = lazy(() => import('./pages/ExcelCenterPage').then((m) => ({ default: m.ExcelCenterPage })));
 const DesignSystemPage = lazy(() => import('./pages/DesignSystemPage').then((m) => ({ default: m.DesignSystemPage })));
 const InvoicesPage = lazy(() => import('./pages/LedgerPages').then((m) => ({ default: m.InvoicesPage })));
@@ -94,6 +95,8 @@ export const App = () => {
             <OrdersPage />
           ) : page === 'mixDesigns' ? (
             <MixDesignsPage />
+          ) : page === 'batches' ? (
+            <BatchListPage />
           ) : page === 'invoices' ? (
             <InvoicesPage />
           ) : page === 'payments' ? (

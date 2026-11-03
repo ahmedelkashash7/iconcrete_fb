@@ -1,6 +1,12 @@
 /** M3 — batching lifecycle and checks. Pure functions: no database, no IO, no clock. */
 
-import type { RuleClassification, RuleOutcome } from './rules';
+import {
+  evaluateRule,
+  type RuleClassification,
+  type RuleDefinition,
+  type RuleEvaluation,
+  type RuleOutcome,
+} from './rules';
 
 export type BatchStatus = 'planned' | 'in_progress' | 'completed' | 'held' | 'cancelled';
 
@@ -121,85 +127,158 @@ export const checkMoistureReadingValid = (
   );
 };
 
-/** A calibration record must be current at production time. */
-export const checkScaleCalibrationCurrent = (
-  calibratedAt: Date | null,
-  validUntil: Date | null,
-  productionAt: Date,
-): BatchCheck =>
-  verdict(
-    'scaleCalibrationCurrent',
-    BATCH_RULES.scaleCalibrationCurrent,
-    calibratedAt !== null && validUntil !== null && validUntil > productionAt,
-    'batch.scale_calibration_current',
-  );
+/**
+ * Catalogue codes the four measured batching rules read. A code with no row in
+ * `rule_definitions` is treated as unconfigured, so the R1 engine answers
+ * `approval_required` — never a pass, and never a default invented here.
+ */
+export const BATCH_RULE_CODES = {
+  cementWaterDeviation: 'batch.cement_water_deviation',
+  aggregateDeviation: 'batch.aggregate_deviation',
+  yieldOutsideBand: 'batch.yield_tolerance',
+  scaleCalibrationCurrent: 'batch.scale_calibration_interval',
+} as const;
 
-/** Cement/water deviation outside a configured band is approval_required. */
+export type BatchCatalogueKey = keyof typeof BATCH_RULE_CODES;
+
+export const BATCH_CATALOGUE_CODES: readonly string[] = Object.values(BATCH_RULE_CODES);
+
+export type MaterialRole = 'cement' | 'aggregate' | 'water' | 'admixture';
+
+/** The demo materials, mapped to the role a mixing check needs. */
+export const MATERIAL_ROLE: Record<string, MaterialRole> = {
+  'MAT-001': 'cement',
+  'MAT-002': 'aggregate',
+  'MAT-003': 'aggregate',
+  'MAT-004': 'aggregate',
+  'MAT-005': 'admixture',
+  'MAT-006': 'water',
+};
+
+/** A rule the catalogue does not carry: no value, no source note, engine answers unconfigured. */
+export const missingBatchRule = (key: BatchCatalogueKey): RuleDefinition => ({
+  code: BATCH_RULE_CODES[key],
+  module: 'batching',
+  classification: BATCH_RULES[key],
+  value: null,
+  unit: '',
+  sourceNote: '',
+  status: 'active',
+});
+
+const fromEvaluation = (key: BatchRuleKey, evaluation: RuleEvaluation): BatchCheck => ({
+  key,
+  classification: evaluation.classification,
+  outcome: evaluation.outcome,
+  reasonKey: evaluation.reasonKey,
+});
+
+/** Percentage deviation of an actual value from its target; null when it cannot be measured. */
+export const deviationPercent = (target: number | null, actual: number | null): number | null => {
+  if (target === null || actual === null) return null;
+  if (!Number.isFinite(target) || !Number.isFinite(actual) || target === 0) return null;
+  return (Math.abs(actual - target) / Math.abs(target)) * 100;
+};
+
+/** Largest deviation across the components whose material plays one of the roles. */
+export const roleDeviationPercent = (
+  components: readonly { materialId: string; targetWeight: number | null; actualWeight: number | null }[],
+  roles: readonly MaterialRole[],
+): number | null => {
+  let worst: number | null = null;
+  for (const component of components) {
+    const role = MATERIAL_ROLE[component.materialId];
+    if (!role || !roles.includes(role)) continue;
+    const deviation = deviationPercent(component.targetWeight, component.actualWeight);
+    if (deviation === null) continue;
+    worst = worst === null ? deviation : Math.max(worst, deviation);
+  }
+  return worst;
+};
+
+/**
+ * Cement/water deviation outside the configured band is approval_required. The band is a rule
+ * value, so an unconfigured rule blocks instead of guessing a percentage.
+ */
 export const checkCementWaterDeviation = (
-  target: number | null,
-  actual: number | null,
-  bandPercent: number | null,
+  rule: RuleDefinition | null,
+  deviation: number | null,
 ): BatchCheck => {
-  if (target === null || actual === null || bandPercent === null || bandPercent <= 0) {
+  if (deviation === null) {
     return verdict(
       'cementWaterDeviation',
       BATCH_RULES.cementWaterDeviation,
       false,
-      'batch.water_ratio_band_unconfigured',
+      'batch.deviation_unmeasured',
     );
   }
-  const deviation = Math.abs(actual - target) / Math.max(1, Math.abs(target));
-  return verdict(
+  return fromEvaluation(
     'cementWaterDeviation',
-    BATCH_RULES.cementWaterDeviation,
-    deviation <= bandPercent / 100,
-    'batch.water_ratio_deviation',
+    evaluateRule(rule ?? missingBatchRule('cementWaterDeviation'), {
+      actual: deviation,
+      comparator: 'lte',
+    }),
   );
 };
 
-/** Aggregate deviation outside a configured band is a warning. */
+/** Aggregate deviation outside the configured band is a warning. */
 export const checkAggregateDeviation = (
-  target: number | null,
-  actual: number | null,
-  bandPercent: number | null,
+  rule: RuleDefinition | null,
+  deviation: number | null,
 ): BatchCheck => {
-  if (target === null || actual === null || bandPercent === null || bandPercent <= 0) {
-    return verdict(
-      'aggregateDeviation',
-      BATCH_RULES.aggregateDeviation,
-      false,
-      'batch.aggregate_band_unconfigured',
-    );
+  if (deviation === null) {
+    return verdict('aggregateDeviation', BATCH_RULES.aggregateDeviation, false, 'batch.deviation_unmeasured');
   }
-  const deviation = Math.abs(actual - target) / Math.max(1, Math.abs(target));
-  return verdict(
+  return fromEvaluation(
     'aggregateDeviation',
-    BATCH_RULES.aggregateDeviation,
-    deviation <= bandPercent / 100,
-    'batch.aggregate_deviation',
+    evaluateRule(rule ?? missingBatchRule('aggregateDeviation'), {
+      actual: deviation,
+      comparator: 'lte',
+    }),
   );
 };
 
-/** Yield outside a configured tolerance is a warning. */
+/** Yield outside the configured tolerance is a warning. */
 export const checkYieldOutsideBand = (
-  planned: number,
-  actual: number,
-  tolerance: number | null,
+  rule: RuleDefinition | null,
+  deviation: number | null,
 ): BatchCheck => {
-  if (tolerance === null || tolerance <= 0) {
+  if (deviation === null) {
+    return verdict('yieldOutsideBand', BATCH_RULES.yieldOutsideBand, false, 'batch.yield_unmeasured');
+  }
+  return fromEvaluation(
+    'yieldOutsideBand',
+    evaluateRule(rule ?? missingBatchRule('yieldOutsideBand'), {
+      actual: deviation,
+      comparator: 'lte',
+    }),
+  );
+};
+
+/**
+ * A scale calibration is current while the hours since it stay within the configured
+ * interval. A missing calibration record is an engineering_hold, never an assumed pass.
+ */
+export const checkScaleCalibrationCurrent = (
+  rule: RuleDefinition | null,
+  calibratedAt: Date | null,
+  productionAt: Date,
+): BatchCheck => {
+  if (calibratedAt === null || Number.isNaN(calibratedAt.getTime())) {
     return verdict(
-      'yieldOutsideBand',
-      BATCH_RULES.yieldOutsideBand,
+      'scaleCalibrationCurrent',
+      BATCH_RULES.scaleCalibrationCurrent,
       false,
-      'batch.yield_tolerance_unconfigured',
+      'batch.scale_calibration_missing',
     );
   }
-  const ratio = planned > 0 ? actual / planned : 0;
-  return verdict(
-    'yieldOutsideBand',
-    BATCH_RULES.yieldOutsideBand,
-    Math.abs(ratio - 1) <= tolerance / 100,
-    'batch.yield_outside_band',
+  const hours = Math.max(0, (productionAt.getTime() - calibratedAt.getTime()) / 3600_000);
+  return fromEvaluation(
+    'scaleCalibrationCurrent',
+    evaluateRule(rule ?? missingBatchRule('scaleCalibrationCurrent'), {
+      actual: Math.round(hours * 1000) / 1000,
+      comparator: 'lte',
+    }),
   );
 };
 

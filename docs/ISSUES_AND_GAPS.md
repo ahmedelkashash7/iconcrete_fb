@@ -122,3 +122,19 @@ Defect found and fixed while closing G2: `customer_statement` fell back to the t
 customer when the requested `customerId` was unknown or belonged to another tenant, so a
 cross-tenant request returned another party's statement under that id. It now returns an empty
 statement with the requested id in `meta.extra`. Covered by the second-tenant test.
+
+## Update — 2026-11-03 (M3 batching)
+
+- **G17 narrowed.** `batches`, `batch_components`, `moisture_readings` and `batch_overrides`
+  now exist, so the dashboard's batch figure reads real tenant rows instead of a hard zero.
+- **Rules are catalogue-driven.** Cement/water deviation, aggregate deviation, yield tolerance
+  and the scale-calibration interval all evaluate through the R1 engine. Every one is seeded
+  with no value and no source note, so a completion is refused as `approval_required` until a
+  level-5 user records the value and its reference in the catalogue. This is deliberate: no
+  ECP 203-2007 limit was invented and nothing auto-passes.
+- **Lifecycle is enforced in two places.** The service checks the transition table and the SQL
+  update is a compare-and-set on the current status, so two concurrent completions produce one
+  winner; a trigger refuses any edit to a completed row or its children.
+- Still open: the batch screens pass the route/nav/label tests but were **not rendered in a
+  browser** (G6). The R1 rule-value editor remains an API/service surface with no screen, so a
+  level-5 user configures values over the API for now.

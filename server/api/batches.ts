@@ -53,11 +53,15 @@ export const handleBatches = async (request: Request, deps: B1Deps): Promise<Res
     if (path === '/api/batches' && method === 'GET') {
       const context = await guarded(1);
       if (context instanceof Response) return context;
-      const rows = await batches.list(context, {
-        plantId: url.searchParams.get('plantId') ?? '',
-        status: url.searchParams.get('status') ?? '',
-      });
-      return json({ batches: rows, total: rows.length, storage: 'postgres' });
+      const [rows, plants, versions] = await Promise.all([
+        batches.list(context, {
+          plantId: url.searchParams.get('plantId') ?? '',
+          status: url.searchParams.get('status') ?? '',
+        }),
+        batches.plants(context),
+        batches.approvedVersions(context),
+      ]);
+      return json({ batches: rows, plants, versions, total: rows.length, storage: 'postgres' });
     }
 
     if (path === '/api/batches' && method === 'POST') {
@@ -102,9 +106,14 @@ export const handleBatches = async (request: Request, deps: B1Deps): Promise<Res
           tolerancePct: numOrNull(row.tolerancePct),
         };
       });
+      const scaleCalibratedAt =
+        payload.scaleCalibratedAt === null || payload.scaleCalibratedAt === undefined || payload.scaleCalibratedAt === ''
+          ? null
+          : str(payload.scaleCalibratedAt);
       return json({ batch: await batches.complete(context, decodeURIComponent(completeMatch[1] ?? ''), {
         actualVolume: numOr(payload.actualVolume, Number.NaN),
         components,
+        scaleCalibratedAt,
       }) });
     }
 

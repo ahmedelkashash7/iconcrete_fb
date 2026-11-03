@@ -206,3 +206,30 @@ invented. `tests/rbac.test.ts` now expects `mixDesigns` for a level-1 viewer, be
 scope sets read at level 1 while writes stay at 4 and approval at 5.
 
 Not executed here: browser/E2E, screen reader, LibreOffice recalculation, deployment, push.
+
+---
+
+# Verification record — M3 batching (2026-11-03)
+
+| Step | Command | Result |
+|---|---|---|
+| Typecheck | `bun run typecheck` | 0 errors |
+| Migration on a fresh database | `bun run db:migrate` against a newly created database | `applied: 0001_m1_organization.sql … 0014_batching.sql`; `skipped: none` |
+| Seed | `bun run db:seed` | succeeds; the batching catalogue is inserted per company |
+| Unit/API/DB tests | `bun test` | **295 pass, 0 fail**, 34 files |
+| New M3 tests | `bun test tests/m3/batching.test.ts` | 15 pass — lifecycle transitions, configurable moisture window, band boundary, override evidence, completed-row immutability, concurrent completion, tenant isolation |
+| Data dictionary | `bun run schema:docs` | regenerated from the live schema, 1,765 lines |
+| Build | `bun run build` | success; `BatchListPage` chunk 24.85 kB (5.60 kB gzip), entry 315.25 kB |
+
+The unique index `batches_plant_day_no_idx` is built on the immutable helper
+`batch_plant_day(plant_id, produced_at)`, so the migration applies without the
+`functions in index expression must be marked IMMUTABLE` failure.
+
+ECP 203-2007 values remain **not specified in the supplied reference**: the four measured
+batching rules (cement/water deviation, aggregate deviation, yield tolerance, scale-calibration
+interval) are seeded with no value and no source note, so each evaluates to
+`approval_required` until a level-5 user records both. No limit was invented and nothing
+auto-passes; `batch_plant_day` and `batch_generate` are app-owned helpers that assert no ECP
+format.
+
+Not executed here: browser/E2E, screen reader, LibreOffice recalculation, deployment, push.

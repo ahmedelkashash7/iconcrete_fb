@@ -22,8 +22,9 @@ describe('RBAC matrix', () => {
   });
 
   test('viewer sees only dashboard and reports', () => {
-// M2 adds mix designs as a level-1 read (spec: read level 1); writes gate at 4 and 5.
-    expect(visiblePages(1).sort()).toEqual(['dashboard', 'mixDesigns', 'reports']);
+// M2 and M3 add mix designs and batches as level-1 reads (spec: read level 1); writes
+// gate at 3, 4 and 5.
+    expect(visiblePages(1).sort()).toEqual(['batches', 'dashboard', 'mixDesigns', 'reports']);
     expect(canAccessPage(1, 'dashboard')).toBe(true);
     expect(canAccessPage(1, 'customers')).toBe(false);
     expect(canAccessPage(1, 'users')).toBe(false);

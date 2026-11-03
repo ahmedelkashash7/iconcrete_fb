@@ -254,6 +254,51 @@ drop trigger if exists trg_touch_moisture_readings on moisture_readings;
 create trigger trg_touch_moisture_readings before update on moisture_readings
   for each row execute function touch_updated_at();
 
+-- ------------------------------------------------- batching rule catalogue
+-- Same idempotent function as 0012/0013, extended with the four rules M3 measures. They are
+-- inserted without a value and without a source note: ECP 203-2007 does not define these
+-- limits in the supplied reference, so each stays configurable and an unconfigured rule
+-- evaluates to approval_required instead of a pass.
+create or replace function seed_rule_catalogue() returns integer
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  inserted integer;
+begin
+  insert into public.rule_definitions (id, company_id, code, module, classification, unit, created_by, updated_by)
+  select 'RUL-' || c.id || '-' || replace(v.code, '.', '_'),
+         c.id, v.code, v.module, v.classification, v.unit, 'seed', 'seed'
+    from public.companies c
+    cross join (values
+      ('mix.cementitious_min',              'mix_design', 'mandatory_failure',  'kg/m3'),
+      ('mix.water_cement_ratio_max',        'mix_design', 'approval_required',  'ratio'),
+      ('mix.yield_tolerance',               'mix_design', 'warning',            '%'),
+      ('mix.approved_version_edit',         'mix_design', 'mandatory_failure',  ''),
+      ('batch.water_ratio_max',             'batching',   'approval_required',  'ratio'),
+      ('batch.moisture_window_hours',       'batching',   'mandatory_failure',  'h'),
+      ('batch.scale_calibration',           'batching',   'engineering_hold',   ''),
+      ('batch.cement_water_deviation',      'batching',   'approval_required',  '%'),
+      ('batch.aggregate_deviation',         'batching',   'warning',            '%'),
+      ('batch.yield_tolerance',             'batching',   'warning',            '%'),
+      ('batch.scale_calibration_interval',  'batching',   'engineering_hold',   'h'),
+      ('quality.strength_acceptance',       'quality',    'mandatory_failure',  'MPa'),
+      ('quality.specimen_age_days',         'quality',    'approval_required',  'day'),
+      ('fleet.delivery_tolerance',          'fleet',      'warning',            '%'),
+      ('dispatch.drum_age_limit',           'fleet',      'authorized_override', 'min')
+    ) as v(code, module, classification, unit)
+  on conflict (id) do nothing;
+  get diagnostics inserted = row_count;
+  return inserted;
+end $$;
+
+revoke all on function seed_rule_catalogue() from public;
+grant execute on function seed_rule_catalogue() to iconcrete_app;
+
+-- Gives existing companies the M3 rules too; db:seed re-runs this after its per-company delete.
+select seed_rule_catalogue();
+
 -- ----------------------------------------------------- privileges
 grant select, insert, update, delete on batches to iconcrete_app;
 grant select, insert, update, delete on batch_components to iconcrete_app;
