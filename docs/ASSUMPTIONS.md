@@ -16,7 +16,7 @@ code. Each entry names the assumption, where it is used, and what would remove i
 | A9 | Demo dataset is synthetic; it contains no real customer, supplier or employee data | `src/seed/demo.ts` | VERIFIED BY REVIEW | — |
 | A10 | FIFO is the default payment-allocation order (due date, then id) | `src/core/allocation.ts` | IMPLEMENTED AND TESTED; contractual choice | per-customer allocation policy |
 | A11 | Straight-line depreciation is the only method implemented | `src/core/assets.ts` | IMPLEMENTED; declining balance absent | additional method + tests |
-| A12 | Phase 1 read models (dashboard, reports, customers) still use the demo dataset in postgres mode | `server/index.ts` | KNOWN GAP; other tenants get 403 | database-backed read models |
+| A12 | ~~Phase 1 read models (dashboard, reports, customers) still use the demo dataset in postgres mode~~ **CLOSED** — reads are repository-backed under RLS | `server/db/datasetRepo.ts` | IMPLEMENTED AND TESTED (`tests/m1/dataset.readmodel.test.ts`, `tests/m1/readmodel.http.test.ts`) | G2 closure commit |
 | A13 | Staged Excel imports live in process memory | `server/index.ts` | KNOWN GAP | writing `staged_imports` / `import_records` |
 | A14 | No provider free-tier limits are asserted | `docs/FREE_TOOLING_AND_COSTS.md` | NOT VERIFIED | verify each vendor’s current terms and date the entry |
 | A15 | Egyptian Code compliance is not claimed anywhere | whole repository | EXPLICIT NON-CLAIM | source-verified rules + approval record |

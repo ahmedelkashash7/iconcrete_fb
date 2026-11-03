@@ -60,7 +60,7 @@ Everything below was executed in this Cloud runner; nothing is inferred.
 
 Browser-level accessibility and responsive verification; screen-reader pass; keyboard tab
 order walkthrough; Playwright end-to-end tests; Git remote/CI/deployment; M1 accounting UI;
-per-tenant dashboard/report read models; Excel accounting templates.
+Excel accounting templates.
 
 ### 6. Environment limitations
 
@@ -128,7 +128,7 @@ bash scripts/backup-restore-drill.sh
 
 ### 14. Known issues
 
-`docs/ISSUES_AND_GAPS.md` (G2 read models, G3 accounting UI, G4 Excel accounting templates,
+`docs/ISSUES_AND_GAPS.md` (G3 accounting UI, G4 Excel accounting templates,
 G6 no browser, G7 no remote, G8 audit retention, G9 CSRF/bearer-only, G10 no 2FA/reset,
 G11 CSV schema-version gate, G12 no LibreOffice recalculation run).
 
@@ -164,8 +164,8 @@ by a new forward migration (never editing an applied one); data rollback through
 
 ### 20. Recommended next phase
 
-Phase 2 planning around M1 completion: accounting UI on the existing service layer, durable
-per-tenant dashboard/report read models (G2), Excel accounting templates (G4), and a browser
+Phase 2 planning on `docs/PHASE2_PLAN.md`: accounting UI on the existing service layer, the
+M2→M5 modules with configurable rule classes, Excel accounting templates (G4), and a browser
 environment for the §60 items still NOT TESTED.
 
 ---
@@ -178,9 +178,9 @@ environment for the §60 items still NOT TESTED.
 | 2 | All active navigation items lead to valid destinations | PASS | `tests/routes.smoke.test.ts` — pages, sidebar, router branches |
 | 3 | Every visible action works or is explicitly disabled | PASS | actions tested; disabled states carry titles/hints |
 | 4 | Customer records use a consistent data model | PASS | `customers` table + shared service on both write paths |
-| 5 | Lists, details, reports read from the same source | PARTIAL | postgres-mode read models still demo-backed (G2) |
+| 5 | Lists, details, reports read from the same source | PASS | postgres mode reads tenant tables under RLS for dashboard, reports and customers (`tests/m1/dataset.readmodel.test.ts`, `tests/m1/readmodel.http.test.ts`) |
 | 6 | Create/edit updates all relevant views | PASS | B1 test: create → list → detail → statement |
-| 7 | Dashboard metrics derived from data | PARTIAL | derived in demo adapter; not yet repository-backed in postgres |
+| 7 | Dashboard metrics derived from data | PASS | an invoice written only to PostgreSQL moves `overdueReceivables` by exactly its amount over HTTP (`tests/m1/readmodel.http.test.ts`) |
 | 8 | Synthetic demo data clearly identified | PASS | phase banner + `data_source` markers |
 | 9 | CSV import includes validation and preview | PASS | B2 lifecycle test: validate, preview, errors, report |
 | 10 | Imports do not silently overwrite or duplicate | PASS | checksum guard (409), unique open-hash index, per-row audit |
@@ -190,9 +190,10 @@ environment for the §60 items still NOT TESTED.
 | 14 | Known issues documented | PASS | 12 open items with severity and next action |
 | 15 | No later-phase feature shown as operational | PASS | M1 presented as service layer + staging, no accounting UI claim |
 
-**Gate verdict:** Phase 1 foundation is coherent and testable; criteria 1, 5 and 7 remain
-PARTIAL because there is no browser in this environment and two read models are still
-demo-backed. Phase 2 planning may proceed; Phase 1 is not claimed as production-ready.
+**Gate verdict:** Phase 1 foundation is coherent and testable. Criteria 5 and 7 are now PASS
+(G2 closed: dashboard, reports and customer reads come from tenant tables under RLS). Only
+criterion 1 stays PARTIAL, because no browser exists in this environment. Phase 2 planning may
+proceed; Phase 1 is not claimed as production-ready.
 
 ## B2 gap check
 

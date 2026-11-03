@@ -189,7 +189,8 @@ known limitations and the Phase 2 continuation prompt.
 - **No offline sync.** The SQLite/indexed write queue from M17 does not exist yet.
 - **No 2FA, no real RBAC on a database.** Roles are enforced in the API but not by RLS.
 - **No operational modules** (accounting M1, batching M2, fleet M3, quality M4, … M19).
-  Dashboard/report figures come from demo data shaped like those modules.
+  Dashboard and report figures are read from PostgreSQL under RLS in postgres mode
+  (`server/db/datasetRepo.ts`); demo mode is labelled as such.
 - **Excel cannot provide** live cloud sync, RLS, real 2FA, GPS/SCADA/IoT connectivity,
   WhatsApp/SMS delivery, Power Query/Data Model/Power Pivot/DAX or server-side API auth.
   The workbook documents this and uses placeholders instead of false claims.

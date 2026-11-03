@@ -108,3 +108,17 @@ Superseding notes for the table above; the original rows are kept so history sta
 | G13 | Design-system page is role level 5 only | viewers cannot see the reference page | expose read-only at level 1 after a sign-off on support cost |
 | G14 | Contrast is asserted from tokens, not measured on a physical panel | panel/gamut differences are unverified | spot check on a workstation |
 | G15 | No automated axe/Playwright accessibility run | ARIA mistakes outside the static rules can slip through | add Playwright + axe when a browser image exists |
+
+---
+
+## G2 closure (this commit)
+
+| Item | Status | Evidence |
+|---|---|---|
+| **G2** read models demo-backed in postgres mode | **CLOSED** | `server/db/datasetRepo.ts` builds the dataset from tenant tables inside `withTenant`; `/api/dashboard`, `/api/reports/*`, `/api/customers` call it whenever a database is configured. Proved over HTTP by `tests/m1/readmodel.http.test.ts`: an invoice written only to PostgreSQL moves `overdueReceivables` by exactly its amount, and the customers list total equals `select count(*)` for the tenant. |
+| **G16** one demo company for read models | **CLOSED for the read path** | same HTTP test logs in as `admin2` (CMP-0002): the CMP-0001 fixture is absent from the customer list and from a statement filtered by its id. `tests/m1/dataset.readmodel.test.ts` proves RLS isolation with the restricted role. |
+
+Defect found and fixed while closing G2: `customer_statement` fell back to the tenant's **first**
+customer when the requested `customerId` was unknown or belonged to another tenant, so a
+cross-tenant request returned another party's statement under that id. It now returns an empty
+statement with the requested id in `meta.extra`. Covered by the second-tenant test.

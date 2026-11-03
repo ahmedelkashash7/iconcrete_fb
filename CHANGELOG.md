@@ -125,3 +125,18 @@ versions follow Semantic Versioning.
   ARCHITECTURE_DECISIONS (ADR-013…016) / FREE_TOOLING_AND_COSTS / DATA_MODEL /
   ENTITY_RELATIONSHIPS / ASSUMPTIONS (A16…A19) / regenerated DATA_DICTIONARY.
 - B2 gap check: none — CSV lifecycle complete, wizard mounted, Reports UI wired.
+
+## G2 closure — dashboard/report reads are repository-backed (2026-11-02)
+
+- `/api/dashboard`, `/api/reports/*` and `/api/customers` read tenant tables under RLS whenever
+  a database is configured; the demo dataset is used only in demo/test mode and is labelled.
+- Added `tests/m1/readmodel.http.test.ts`: an invoice written only to PostgreSQL moves the
+  dashboard's `overdueReceivables` by exactly its amount, the customer total equals the table
+  count, and a second tenant sees neither the fixture customer nor its statement.
+- Fixed `customer_statement`: an explicit `customerId` that is unknown or belongs to another
+  tenant no longer falls back to the tenant's first customer; it returns an empty statement.
+- §57.5 and §57.7 flipped to PASS in `docs/B3_REPORT.md`; G2 and G16 closed in
+  `docs/ISSUES_AND_GAPS.md`; A12 retired in `docs/ASSUMPTIONS.md`.
+- Added `docs/PHASE2_PLAN.md` (M2 mix design, M3 batching, M4 quality/lab, M5 fleet/dispatch)
+  for approval only. The ECP 203-2007 Code file was not supplied, so no clause number and no
+  numeric limit is attributed to it anywhere in the plan.

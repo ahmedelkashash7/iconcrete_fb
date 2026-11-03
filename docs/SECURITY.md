@@ -137,3 +137,14 @@ Nothing in B3 weakened the model; it added a read-only reference page and strict
 
 Still absent: CSRF protection (safe only while sessions stay bearer-only), 2FA, password
 reset, session-management UI, edge rate limiting, audit retention policy.
+
+### G2 closure (this commit)
+
+- Dashboard, report and customer reads now come from tenant tables under RLS in postgres mode.
+  The demo dataset is used only in demo/test mode and is labelled in the response
+  (`dataSource.mode`/`adapter`, `storageMode`, per-KPI `source`).
+- Fixed in the same change: `customer_statement` used to fall back to the tenant's first
+  customer when the requested `customerId` was not visible, which answered a cross-tenant
+  request with another party's statement. A non-visible explicit id now yields an empty
+  statement; the fallback remains only for requests that omit `customerId`.
+- No new endpoint, no new secret, no change to sessions, RBAC levels or upload limits.

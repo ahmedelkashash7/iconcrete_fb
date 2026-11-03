@@ -145,3 +145,19 @@ kept as written; this section supersedes their counts.
 | Restore drill | `bash scripts/backup-restore-drill.sh` | `DRILL PASSED: 49 tables, 45 RLS tables, 6 users, 1 audit rows restored and verified` |
 
 Not executed: browser/E2E, screen reader, LibreOffice recalculation, any deployment, any push.
+
+---
+
+# Verification record — G2 closure (2026-11-02)
+
+| Step | Command | Result |
+|---|---|---|
+| Typecheck | `bun run typecheck` | 0 errors |
+| Unit/API/DB tests | `bun test` | **225 pass, 0 fail, 0 skip**, 27 files, 3,326 expectations |
+| New read-model HTTP tests | `bun test tests/m1/readmodel.http.test.ts` | 5 pass — postgres source declared, DB-only invoice moves `overdueReceivables` by exactly 1000, statement row present, customer total equals table count, second tenant sees nothing |
+| Build | `bun run build` | success; entry 294.66 kB (90.34 kB gzip), no size warning |
+| Accessibility audit | `bun run scripts/a11y-audit.ts` | mechanical PASS, unchanged |
+| Full gate | `bash scripts/verify.sh` | `pass=225 fail=0 skip=0 typecheck/build/pytest/generator=ok` |
+| Restore drill | not re-run in this commit | schema unchanged since the B3 drill (49 tables, 45 RLS, 6 users, 1 audit row) |
+
+Not executed here: browser/E2E, screen reader, LibreOffice recalculation, deployment, push.

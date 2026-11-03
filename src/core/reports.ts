@@ -164,7 +164,13 @@ export const buildReport = (
     }
 
     case 'customer_statement': {
-      const target = dataset.customers.find((customer) => customer.id === customerId) ?? dataset.customers[0];
+      // An explicit customer that this tenant cannot see returns an empty statement. Falling
+      // back to the first customer would answer a cross-tenant request with another party's
+      // statement under the requested id.
+      const requested = customerId ?? '';
+      const target = requested
+        ? dataset.customers.find((customer) => customer.id === requested)
+        : dataset.customers[0];
       if (!target) {
         return {
           type,
@@ -172,7 +178,7 @@ export const buildReport = (
           columns: [],
           rows: [],
           totals: {},
-          meta: { ...metaBase, rowCount: 0 },
+          meta: { ...metaBase, rowCount: 0, ...(requested ? { extra: requested } : {}) },
         };
       }
       const invoices = dataset.invoices

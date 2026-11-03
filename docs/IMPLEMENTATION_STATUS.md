@@ -62,7 +62,7 @@ test or command that was actually executed at commit `5f90ccc`.
 | 2 | Active navigation leads to valid destinations | IMPLEMENTED AND VERIFIED (unit-tested page keys, no dead menu entries) |
 | 3 | Visible actions work or are disabled with an explanation | IMPLEMENTED AND VERIFIED for Phase 1 actions; later-module buttons are absent rather than fake |
 | 4 | Consistent customer data model | IMPLEMENTED AND VERIFIED |
-| 5 | Lists/details/reports share one source | IMPLEMENTED AND VERIFIED for the demo dataset (`createDemoDataset`) |
+| 5 | Lists/details/reports share one source | IMPLEMENTED AND VERIFIED | postgres mode reads tenant tables under RLS for dashboard, reports and customers; demo mode reads the labelled demo dataset (`tests/m1/dataset.readmodel.test.ts`, `tests/m1/readmodel.http.test.ts`) |
 | 6 | Creating/editing a customer updates all views | PARTIAL — customer creation only via Excel import commit (demo adapter); no edit screen |
 | 7 | Dashboard metrics derived from data | IMPLEMENTED AND VERIFIED (`tests/seed.test.ts`) |
 | 8 | Synthetic demo data clearly identified | IMPLEMENTED AND VERIFIED |
