@@ -233,3 +233,30 @@ auto-passes; `batch_plant_day` and `batch_generate` are app-owned helpers that a
 format.
 
 Not executed here: browser/E2E, screen reader, LibreOffice recalculation, deployment, push.
+
+---
+
+# Verification record — M4 quality and laboratory (2026-11-03)
+
+| Step | Command | Result |
+|---|---|---|
+| Typecheck | `bun run typecheck` | 0 errors |
+| Migration on a fresh database | `bun run db:migrate` against a newly created database | `applied: 0001_m1_organization.sql … 0015_quality.sql`; `skipped: none` |
+| Seed | `bun run db:seed` | succeeds; the quality catalogue is inserted per company |
+| New M4 tests | `bun test tests/m4/quality.test.ts` | 13 pass — lapsed calibration holds a result until recalibration, one NCR per failed result, certificate refusals and immutability, CAPA effectiveness gate, missing limits, specimen warning, tenant isolation |
+| Unit/API/DB tests | `bun test` (with `DATABASE_URL` and `ICONCRETE_RLS_URL`) | **308 pass, 0 fail**, 35 files |
+| Data dictionary | `bun run schema:docs` | regenerated from the live schema, 2,013 lines |
+| Build | `bun run build` | success; entry 327.08 kB (99.02 kB gzip) |
+
+The quality module adds eight tables (`lab_equipment`, `equipment_calibrations`, `trial_batches`,
+`quality_tests`, `specimens`, `ncr`, `capa`, `certificates`) with tenant RLS and restrictive plant
+policies. A partial unique index on `ncr (company_id, test_id)` keeps one live NCR per failed
+test, and a trigger freezes an issued certificate's content while allowing revocation with a
+reason.
+
+ECP 203-2007 values remain **not specified in the supplied reference**: acceptance limits come
+from each test's own `spec_min`/`spec_max` plus a source note, required test ages and the
+slump/temperature bands are catalogue rules seeded with no value, and an unconfigured rule is
+`approval_required` — never a pass. No clause number or limit was invented.
+
+Not executed here: browser/E2E, screen reader, LibreOffice recalculation, deployment, push.

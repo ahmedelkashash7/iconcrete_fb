@@ -57,6 +57,7 @@ Thumbs.db
 
 # verification and scratch output (reproducible, never committed)
 .verify/
+tmp/
 artifacts/
 playwright-report/
 test-results/

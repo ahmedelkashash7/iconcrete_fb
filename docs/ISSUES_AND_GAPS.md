@@ -138,3 +138,19 @@ statement with the requested id in `meta.extra`. Covered by the second-tenant te
 - Still open: the batch screens pass the route/nav/label tests but were **not rendered in a
   browser** (G6). The R1 rule-value editor remains an API/service surface with no screen, so a
   level-5 user configures values over the API for now.
+
+## Update — 2026-11-03 (M4 quality and laboratory)
+
+- **Quality tables exist now.** `lab_equipment`, `equipment_calibrations`, `trial_batches`,
+  `quality_tests`, `specimens`, `ncr`, `capa` and `certificates` are migrated with tenant and
+  plant RLS, so the dashboard's quality figure reads tenant rows instead of a hard zero.
+- **Acceptance limits are never assumed.** They live on the test row with their source note; a
+  test without both bounds is refused with `approval_required`. Required test ages and the
+  slump/temperature bands are catalogue rules seeded unconfigured, so a level-5 user must record
+  the value and its reference before those checks can pass.
+- **Evidence is enforced by the database.** A partial unique index allows one live NCR per
+  failed test, and a trigger freezes an issued certificate's content: only revocation with a
+  reason is permitted, and a revoked certificate is terminal.
+- Still open: the quality screens pass the route/nav/label tests but were **not rendered in a
+  browser** (G6). Equipment calibration is recorded through the API; there is no calibration
+  screen. The R1 rule-value editor and the ITP schedules from the plan are not implemented.
