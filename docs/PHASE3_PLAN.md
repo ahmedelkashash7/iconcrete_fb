@@ -2,7 +2,7 @@
 
 **Status: PLAN FOR APPROVAL. Nothing in this document is implemented, migrated, routed or tested.**
 No table, endpoint, screen, rule code or test from this plan exists in the repository at this tip
-(`b2cbda2`). Phase 3 work starts only after this plan is approved and a separate execution brief
+(`239c9e9`). Phase 3 work starts only after this plan is approved and a separate execution brief
 is issued.
 
 ## Reference position
@@ -13,7 +13,9 @@ The controlling reference for numeric limits remains **ECP 203-2007**, whose Cod
 - No clause number is attributed to ECP anywhere below.
 - Every tolerance, threshold, discount band, approval limit, reorder point and matching tolerance
   is written as **“not specified in the supplied reference”**: configurable, seeded with no
-  value, no default, and an unconfigured rule never passes.
+  value, no default, and an unconfigured rule never passes. The only exceptions are the two credit
+  percentages approved at review (D4), recorded as repository configuration and still configurable,
+  never as ECP values.
 - Repository demo assumptions (A1–A4) may be cited as repository values, never as ECP values.
 - Supplier and price data from the user-supplied workbooks informed only the *shape* of the
   entities below. No workbook formula, value or column is treated as authoritative, and no
@@ -42,16 +44,25 @@ No required module is removed or silently folded into another.
 
 | # | Decision | Options | Recommendation | Spec |
 |---|---|---|---|---|
-| D1 | Inventory valuation method | FIFO · weighted average · specific identification | **Weighted average per company and material**, selected once at company setup (no default) and immutable after the first posted movement; FIFO is a documented option deferred to a later phase; specific identification is refused for bulk materials | §34 |
-| D2 | Negative stock policy | Block outright · permit with authorization, explanation and audit | **Block by default.** A level-4 user may post an exception with a mandatory reason, which creates an `inventory_exceptions` row and an audit event; stock still never becomes silently negative | §34 |
+| D1 | Inventory valuation method | FIFO · weighted average · specific identification | **Weighted average for every bulk material** (`materials.is_bulk = true`), set once per company and immutable after that material's first posted movement; **FIFO is allowed for non-bulk materials** (spare parts, consumables) and is not deferred — it consumes open cost layers oldest first, chosen per material at creation. Specific identification is refused for bulk materials | §34 |
+| D2 | Negative stock policy | Block outright · permit with authorization, explanation and audit | **Block below zero; a balance of exactly zero is valid and posts.** Any movement that would take the derived balance below zero is refused. A level-4 user may override with a mandatory reason, which creates an `inventory_exceptions` row and an audit event and **auto-suggests the missing receiving document** (an open PO line or an expected GRN for that material and store) for the user to confirm; stock never becomes silently negative | §34 |
 | D3 | Order lifecycle reconciliation | Keep B1 chain · replace it · extend it | **Extend the existing chain**: `draft → confirmed → scheduled → in_production → delivered → invoiced → closed`, plus `cancelled` from `draft|confirmed|scheduled` and `on_hold` from `confirmed|scheduled|in_production` with resume. Partial delivery is derived from delivery tickets, not stored as a state. Existing statuses, API and screen stay; new states and guards are additive | §22 |
-| D4 | Credit-limit enforcement | Block · warn · approval_required | **approval_required at level 4** when exposure exceeds the effective limit, recorded with limit, exposure, actor and reason; the behaviour is configurable per company (enforce / warn only) and an unconfigured limit means no automatic pass — it needs approval | §20, §22 |
+| D4 | Credit-limit enforcement | Block · warn · approval_required | **Warn above 100% of the effective limit; approval_required at level 4 above 110%**, recorded with limit, exposure, actor and reason. Exposure = posted AR + open orders + overdue invoices, each stored separately on the check. **Hard block only for `suspended` or `blacklisted` accounts** (and `archived`). The two percentages are review-approved repository configuration (`sales.credit_warn_pct` = 100, `sales.credit_approval_pct` = 110), not ECP values, and stay configurable per company; an unconfigured limit means no automatic pass — it needs approval | §20, §22 |
 | D5 | Discount / price approval thresholds | Fixed percentage · per-company configurable · per-customer | **Per-company configurable rules** `sales.discount_approval_pct` and `sales.discount_max_pct`, both seeded **not specified in the supplied reference** with no default; above threshold → approval_required, above max → mandatory failure | §21 |
 | D6 | Three-way match tolerance | Zero tolerance · fixed tolerance · configurable | **Configurable quantity and price tolerances** (`procurement.match_qty_tolerance_pct`, `procurement.match_price_tolerance_pct`), seeded with no value; a variance beyond an unconfigured tolerance is approval_required, never matched | §35 |
 | D7 | Price precedence | Price list first · contract first · “latest wins” | **Contract price > volume commitment > seasonal price > price list**, with the resolution stored in `price_resolutions` (source type, source id, rule id, resolved price). No applicable price, or two sources at the same rank, → approval_required | §21 |
 | D8 | Quotation revision vs signed contract | Mutate the quotation · version it · detach contract copy | **Immutable quotation versions.** An approved quotation can only be superseded by a new version; a contract pins `quotation_version_id` and a signed document reference, and changing contract price requires a level-5 change order. A new quotation version never alters an existing contract | §21 |
 | D9 | Delivery ticket / POD shape | One ticket per order · one per trip · one per load | **One ticket per load**, attached to exactly one order and one trip, optionally covering several batches through `delivery_ticket_batches`; `proof_of_delivery` is a child of the ticket. One order may have many tickets, trips and batches | §19, §22 |
 | D10 | Is §27 already satisfied by M2/M3? | New moisture entities · extend existing · reuse as-is | **Largely satisfied.** M2's explicit `moisture_basis` and M3's `moisture_readings` already model basis and validity. Phase 3 adds the material master, supplier lots and `stock_movements` with `wet_quantity`, `dry_equivalent_quantity` and `moisture_reading_id`; **no new moisture-reading entity** is created | §27 |
+
+**Classification.** FIXED by the spec, no business choice: **D3, D7, D8, D10**. OPEN business
+choices: **D1, D2, D4, D5, D6, D9**. At review, D3, D5, D6, D7, D8 and D9 were approved as
+stated; D1, D2 and D4 were revised and carry the revised recommendations in the table above.
+
+| Class | Decisions | Meaning |
+|---|---|---|
+| FIXED by spec | D3, D7, D8, D10 | the reference or an existing built artefact already determines the answer |
+| OPEN | D1, D2, D4, D5, D6, D9 | a business choice the owner must make; recommendation is not a default |
 
 ---
 
@@ -80,23 +91,27 @@ Not present at this tip: any `materials`, `stock_*`, `lead`, `opportunit*`, `quo
 
 | Entity | Key fields |
 |---|---|
-| `materials` | `id`, `company_id`, `code` (unique per company), `name_ar`, `name_en`, `category` (`cement`,`scm`,`aggregate`,`water`,`admixture`,`fuel`,`spare_part`,`other`), `base_unit`, `specific_gravity`, `bulk_density`, `is_moisture_sensitive`, `status` (`active`,`suspended`,`archived`), soft delete |
+| `materials` | `id`, `company_id`, `code` (unique per company), `name_ar`, `name_en`, `category` (`cement`,`scm`,`aggregate`,`water`,`admixture`,`fuel`,`spare_part`,`other`), `base_unit`, `specific_gravity`, `bulk_density`, `is_bulk`, `valuation_method` (`weighted_average`,`fifo`), `is_moisture_sensitive`, `status` (`active`,`suspended`,`archived`), soft delete |
 | `material_lots` | `id`, `company_id`, `plant_id`, `material_id`, `supplier_id`, `lot_no`, `received_at`, `quantity_received`, `quantity_remaining`, `unit_cost`, `quality_status` (`pending`,`released`,`hold`,`rejected`), `certificate_ref`, `expires_at` |
 | `stores` | `id`, `company_id`, `plant_id`, `code`, `name_ar`, `name_en`, `store_type` (`cement_silo`,`aggregate_bay`,`water_tank`,`admixture_tank`,`spare_parts`,`fuel`), `status` |
 | `stock_movements` | `id`, `company_id`, `plant_id`, `store_id`, `material_id`, `lot_id`, `movement_type` (`receipt`,`issue`,`consumption`,`return`,`adjustment`,`transfer_out`,`transfer_in`,`reversal`), `quantity`, `unit`, `unit_cost`, `valuation_amount`, `wet_quantity`, `dry_equivalent_quantity`, `moisture_reading_id`, `occurred_at`, `source_type`, `source_id`, `correction_of`, `reason`, `posted_by` |
+| `cost_layers` | `id`, `company_id`, `store_id`, `material_id`, `lot_id`, `received_at`, `quantity`, `remaining_quantity`, `unit_cost`, `source_movement_id`, `closed_at` |
 | `stock_snapshots` | `id`, `company_id`, `plant_id`, `store_id`, `material_id`, `lot_id`, `snapshot_date`, `closing_quantity`, `closing_value`, `valuation_method`, `generated_at` |
 | `reorder_policies` | `id`, `company_id`, `plant_id`, `store_id`, `material_id`, `reorder_level`, `safety_stock`, `review_period_days` |
-| `inventory_exceptions` | `id`, `company_id`, `movement_id`, `exception_type` (`negative_stock`,`over_issue`,`lot_quality`), `requested_quantity`, `available_quantity`, `actor`, `reason`, `decision` (`approved`,`rejected`), `decided_at` |
+| `inventory_exceptions` | `id`, `company_id`, `movement_id`, `exception_type` (`negative_stock`,`over_issue`,`lot_quality`), `requested_quantity`, `available_quantity`, `actor`, `reason`, `suggested_source_type` (`goods_receipt`,`purchase_order`,`adjustment`,`none`), `suggested_source_id`, `suggestion_note`, `decision` (`approved`,`rejected`), `decided_at` |
 | `stock_transfers` | `id`, `company_id`, `plant_id`, `transfer_no`, `from_store_id`, `to_store_id`, `status` (`draft`,`approved`,`in_transit`,`received`,`cancelled`), `approved_by`, `lines` |
 | `purchase_suggestions` | `id`, `company_id`, `plant_id`, `material_id`, `suggested_quantity`, `basis` (`reorder`,`shortfall`,`manual`), `status` (`open`,`converted`,`dismissed`), `rule_id` |
 
 Balances are **derived** from `stock_movements` (sum by store/material/lot); `stock_snapshots`
-are dated copies for reporting and reconciliation, never the source of truth.
+are dated copies for reporting and reconciliation, never the source of truth. **Valuation:**
+weighted-average materials keep one moving-average cost per store and material; FIFO materials
+consume `cost_layers` oldest first, and a layer is never edited after posting.
 
 ## Relationships
 
 `company 1─* materials 1─* material_lots`; `plants 1─* stores 1─* stock_movements`;
-`materials 1─* stock_movements`; `suppliers 1─* material_lots`; `stores 1─* stock_transfers`;
+`materials 1─* stock_movements`; `materials 1─* cost_layers`; `stock_movements 1─0..1
+cost_layers` (a receipt movement opens a layer); `suppliers 1─* material_lots`; `stores 1─* stock_transfers`;
 `stock_movements 0..1─1 inventory_exceptions`; `moisture_readings 1─* stock_movements` (linked,
 not owned); `stock_movements 0..1─1 stock_movements` (`correction_of`).
 
@@ -128,17 +143,20 @@ policy level 5. Plant scope is re-checked server-side on every write; UI hiding 
 `inventory.material_created`, `inventory.material_updated`, `inventory.lot_received`,
 `inventory.lot_status_changed`, `inventory.movement_posted`, `inventory.movement_reversed`,
 `inventory.exception_approved`, `inventory.transfer_approved`, `inventory.transfer_received`,
-`inventory.snapshot_generated`, `inventory.valuation_method_set`.
+`inventory.snapshot_generated`, `inventory.valuation_method_set`, `inventory.valuation_assigned`.
 
 ## Validation rules
 
 | Rule | Class | Value source |
 |---|---|---|
 | Quantity > 0, unit matches material, store in plant scope | Mandatory failure | repository convention |
-| Valuation method must be selected before the first movement | **Approval required** | company configuration; no default |
+| Valuation method must be selected before the first movement | **Approval required** | per material at creation; no default |
+| Bulk material (`is_bulk = true`) not valued at weighted average | Mandatory failure | D1, §34 |
+| Valuation method changed after that material's first posted movement | Mandatory failure | D1, §34 |
 | Issue from a lot on `rejected` | Mandatory failure | lot quality record |
 | Issue from a lot on `hold` | **Engineering hold**, released only by a level-5 quality decision | lot quality record |
-| Issue greater than derived availability | **Approval required** with exception row and reason (D2) | this plan, §34 |
+| Movement leaving a derived balance at exactly zero | Pass — zero is a valid balance | D2, §34 |
+| Movement that would take a derived balance below zero | **Approval required** at level 4 with reason, `inventory_exceptions` row, audit event and a suggested missing document (D2) | this plan, §34 |
 | Edit or delete a posted movement | Mandatory failure (correct by reversal) | §8, §34 |
 | Duplicate lot number for the same material and supplier | Mandatory failure | repository convention |
 | Reorder level breached | Warning | `inventory.reorder_level` — **not specified in the supplied reference** |
@@ -150,10 +168,12 @@ policy level 5. Plant scope is re-checked server-side on every write; UI hiding 
 ## Tests that will prove it
 
 1. Receipt then issue yields the derived balance and a dated snapshot that agrees with it.
-2. Issue beyond availability is refused; the same issue with a level-4 exception posts and writes
-   an `inventory_exceptions` row plus an audit event.
+2. A movement to exactly zero posts; a movement below zero is refused, and the same movement with
+   a level-4 exception and reason posts, writes an `inventory_exceptions` row naming a suggested
+   missing receipt, and emits an audit event.
 3. A lot on `hold` cannot be issued; releasing it allows the issue.
-4. Posting before choosing a valuation method is refused as `approval_required`.
+4. Posting before choosing a valuation method is refused as `approval_required`; a bulk material
+   refuses FIFO, and a non-bulk spare part values FIFO from its open cost layers oldest first.
 5. An edited movement is refused; a reversal movement corrects the balance and preserves history.
 6. A transfer moves quantity only after approval and receipt, not at draft.
 7. Tenant and plant isolation: another company and another plant see no rows; the restricted role
@@ -259,7 +279,8 @@ prices level 5. A level-3 user sees only its plant's leads and quotations.
 | `orders` (extend) | `site_id`, `source_quotation_version_id`, `payment_terms`, `credit_check_status`, `hold_reason`, `cancelled_at`, `cancelled_by`, `cancel_reason`; existing grade/quantity/price remain the header summary |
 | `order_items` | `id`, `order_id`, `line_no`, `concrete_grade`, `quantity_m3`, `unit_price`, `discount_pct`, `tax_rate`, `pump_charge`, `distance_charge`, `line_total`, `delivered_m3` (derived) |
 | `delivery_locations` | `id`, `customer_id`, `project_id`, `name_ar`, `name_en`, `address`, `latitude`, `longitude`, `contact_name`, `contact_phone` |
-| `order_credit_checks` | `id`, `order_id`, `customer_id`, `exposure`, `effective_limit`, `outcome` (`pass`,`approval_required`), `rule_id`, `decided_by`, `reason`, `decided_at` |
+| `customers` (extend) | `blacklisted_at`, `blacklist_reason`; add `blacklisted` to the existing status check (`active`,`suspended`,`archived`) in a forward-only migration |
+| `order_credit_checks` | `id`, `order_id`, `customer_id`, `exposure`, `exposure_breakdown` (jsonb: posted AR, open orders, overdue invoices), `effective_limit`, `outcome` (`pass`,`warn`,`approval_required`,`block`), `rule_id`, `decided_by`, `reason`, `decided_at` |
 | `delivery_tickets` | `id`, `company_id`, `plant_id`, `ticket_no` (unique per company), `order_id`, `order_item_id`, `trip_id`, `issued_at`, `quantity_m3`, `status` (`issued`,`accepted`,`rejected`,`returned`,`void`) |
 | `delivery_ticket_batches` | `id`, `ticket_id`, `batch_id`, `quantity_m3` |
 | `proof_of_delivery` | `id`, `ticket_id`, `received_by_name`, `received_at`, `signature_ref`, `photo_ref`, `accepted_m3`, `returned_m3`, `notes`, `recorded_by` |
@@ -294,7 +315,8 @@ before a POD. Returns: posted once, then immutable; a correction is a new ticket
 Order item: grade, quantity > 0, unit price, tax rate. Delivery ticket: order, item, trip,
 quantity > 0, issued_at. POD: received-by name, received_at, accepted quantity, signature or
 photo reference, recorder. Returned load: quantity, reason, disposition. Diversion: from/to
-location, reason, approver. Credit check: exposure, effective limit, outcome and rule.
+location, reason, approver. Credit check: exposure with its three-part breakdown (posted AR, open
+orders, overdue invoices), effective limit, outcome and rule.
 
 ## Permission checks
 
@@ -304,7 +326,7 @@ data follows the M5 rule: personal data read level 3+.
 
 ## Audit events
 
-`order.item_added`, `order.credit_checked`, `order.credit_approved`, `order.held`, `order.resumed`,
+`order.item_added`, `order.credit_checked`, `order.credit_warned`, `order.credit_approved`, `order.held`, `order.resumed`,
 `order.cancelled`, `delivery.ticket_issued`, `delivery.pod_recorded`, `delivery.ticket_rejected`,
 `delivery.load_returned`, `delivery.diversion_approved`, `order.short_closed`.
 
@@ -317,7 +339,10 @@ data follows the M5 rule: personal data read level 3+.
 | Ticket total quantity ≤ sum of linked batch quantities | Mandatory failure | §19 |
 | POD accepted + returned ≤ ticket quantity; POD once per ticket | Mandatory failure | §19 |
 | Issue a ticket without a trip or an authorised manual dispatch | Mandatory failure | §19 |
-| Credit exposure above the effective limit | **Approval required** (D4), configurable enforce/warn | §20, §22 |
+| Credit exposure above 100% of the effective limit | **Warning**, recorded on the check | `sales.credit_warn_pct` — 100 at review, configurable |
+| Credit exposure above 110% of the effective limit | **Approval required** at level 4, with limit, exposure, breakdown, actor and reason | `sales.credit_approval_pct` — 110 at review, configurable |
+| No credit limit configured for the customer | **Approval required** (never an automatic pass) | D4 |
+| Customer `suspended`, `blacklisted` or `archived` | Mandatory failure — hard block, no override | D4, §20 |
 | Over-delivery beyond the configured tolerance | **Approval required**; unconfigured tolerance never passes | `sales.over_delivery_tolerance_pct` — **not specified in the supplied reference** |
 | Cancellation after production started | **Approval required** (level 5) | §22 |
 | Returned load without disposition | Mandatory failure | §22 |
@@ -329,8 +354,9 @@ data follows the M5 rule: personal data read level 3+.
    after the second accepted POD.
 2. A ticket above the remaining quantity is refused; a configured tolerance above the order needs
    approval.
-3. Credit exposure above the limit is `approval_required`; the approval row records limit,
-   exposure, actor and reason.
+3. Exposure at 105% of the limit warns and proceeds; at 115% it is `approval_required` and stores
+   the three-part breakdown, limit, actor and reason; a `suspended` or `blacklisted` customer is
+   refused outright.
 4. POD with accepted + returned > ticket quantity is refused; a valid POD moves the ticket to
    `accepted`.
 5. Cancellation after `in_production` is refused at level 4 and allowed at level 5 with a reason.
@@ -528,7 +554,11 @@ reports pick up the new rows; and a regression run of the full suite (currently 
 # What approval of this document means
 
 Approval means approving entity shape, relationships, lifecycles, permissions, audit contract,
-rule classes, decision recommendations D1–D10 and the test list. It does **not** approve any
-numeric value: every limit, tolerance, threshold and rate remains “not specified in the supplied
-reference” until the ECP 203-2007 Code file or an approved project specification is supplied.
-Until then the corresponding rules stay configurable, with no default and no automatic pass.
+rule classes, the classified decisions D1–D10 and the test list. Classification stands as FIXED by
+the spec for D3, D7, D8 and D10, and OPEN for D1, D2, D4, D5, D6 and D9; D3, D5, D6, D7, D8 and
+D9 were approved as stated, and D1, D2 and D4 carry the revised recommendations above. It does
+**not** approve any other numeric value: apart from the two review-approved credit percentages
+(`sales.credit_warn_pct` = 100, `sales.credit_approval_pct` = 110), every limit, tolerance,
+threshold and rate remains “not specified in the supplied reference” until the ECP 203-2007 Code
+file or an approved project specification is supplied. Until then those rules stay configurable,
+with no default and no automatic pass.

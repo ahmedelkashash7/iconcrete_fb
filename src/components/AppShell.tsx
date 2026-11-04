@@ -11,6 +11,7 @@ import type { Lang } from '../types';
 const NAV_GROUPS: Array<{ key: string; pages: PageKey[] }> = [
   { key: 'nav.overview', pages: ['dashboard', 'reports'] },
   { key: 'nav.data', pages: ['customers', 'projects', 'orders', 'mixDesigns', 'batches', 'quality', 'fleet', 'dispatch', 'excelCenter'] },
+  { key: 'nav.inventory', pages: ['inventory', 'purchaseRequests', 'purchaseOrders', 'goodsReceipts'] },
   { key: 'nav.accounting', pages: ['invoices', 'payments', 'statement', 'ledger'] },
   { key: 'nav.admin', pages: ['plants', 'users', 'rules', 'audit', 'settings', 'designSystem'] },
 ];

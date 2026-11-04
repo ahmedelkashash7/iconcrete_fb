@@ -24,12 +24,17 @@ describe('RBAC matrix', () => {
   test('viewer sees only dashboard and reports', () => {
 // M2 and M3 add mix designs and batches as level-1 reads (spec: read level 1); writes
 // gate at 3, 4 and 5.
+// M6 adds the inventory and procurement reads at level 1; writes gate at 3, 4 and 5.
     expect(visiblePages(1).sort()).toEqual([
       'batches',
       'dashboard',
       'dispatch',
       'fleet',
+      'goodsReceipts',
+      'inventory',
       'mixDesigns',
+      'purchaseOrders',
+      'purchaseRequests',
       'quality',
       'reports',
     ]);

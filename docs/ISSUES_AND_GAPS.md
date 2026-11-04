@@ -176,3 +176,32 @@ statement with the requested id in `meta.extra`. Covered by the second-tenant te
   licence and retire, but do not offer a create form. Driver personal-data export (level 4) and
   a GPS position map are not implemented. The R1 rule-value editor and ITP schedules remain
   unbuilt.
+
+## Update — 2026-11-04 (M6 inventory)
+
+- **Inventory tables exist now.** `materials`, `supplier_contacts`, `purchase_requests`, `po_items`,
+  `receipt_items`, `stock_movements`, `inventory_snapshots`, `inventory_exceptions` and
+  `cost_layers` are migrated with tenant and plant RLS. `suppliers`, `purchase_orders` and
+  `goods_receipts` already existed from 0002 and were extended forward-only rather than recreated,
+  so M1 procurement rows remain valid and the M6 lifecycle adds `confirmed`/`fully_received` and
+  the confirmed/voided receipt states.
+- **Balances are derived, never stored.** Every read sums the append-only movement ledger, and a
+  trigger refuses update or delete on `stock_movements`. A snapshot is a dated copy that reports
+  whether it agrees with the ledger; it is never the source of truth.
+- **Valuation is explicit per material.** A bulk material is weighted-average only; FIFO is allowed
+  for non-bulk stock and consumes the oldest open cost layer. No method means no posting
+  (`approval_required`), and the method is locked after the first movement.
+- **A negative balance is evidence, not a silent value.** The movement is refused; a level-4
+  override with a reason writes an `inventory_exceptions` row, its audit event, and a suggested
+  missing document (an open PO line or a draft receipt). An over-receipt is the same pattern.
+- **Deviations from the M6 plan.** The plan's `stores`, `material_lots`, `stock_transfers`,
+  `reorder_policies` and `purchase_suggestions` entities are **not implemented**; this build follows
+  the execution scope (materials are plant-scoped, lots are recorded as `lot_no` on receipt items
+  and movements, and transfers/suggestions remain future work). The plan's lot `hold`/`rejected`
+  quality gate therefore has no screen or table yet; quality status lives with the lot number, not
+  an inventory row. Reorder and safety stock are per material, not per store.
+- Still open: the four inventory and procurement screens pass the typecheck, route/nav/label tests
+  and build, but were **not rendered in a browser** (G6). Purchase-order creation and receipt
+  entry are available on screen; supplier master creation is API-only. There is no transfer screen,
+  no material-lot quality screen, and no reorder-policy screen. The R1 rule-value editor remains an
+  API surface, so a level-5 user configures `inventory.*` values over the API for now.

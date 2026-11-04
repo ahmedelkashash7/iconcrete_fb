@@ -301,3 +301,53 @@ Access is enforced by role level: read 1, propose/confirm/dispatch/trip updates 
 3 (personal data; no export endpoint exists yet), cancel/maintenance/override 4, retire 5.
 
 Not executed here: browser/E2E, screen reader, LibreOffice recalculation, deployment, push.
+
+---
+
+# Verification record — M6 inventory (2026-11-04)
+
+| Step | Command | Result |
+|---|---|---|
+| Typecheck | `bun run typecheck` | 0 errors |
+| Migration on a fresh database | `bun run db:migrate` against a newly created database | `applied: 0001_m1_organization.sql … 0017_m6_inventory.sql`; `skipped: none` |
+| Seed | `bun run db:seed` | succeeds; the inventory rule catalogue is inserted per company |
+| New M6 tests | `bun test tests/m6/inventory.test.ts` | 14 pass — 7 pure lifecycle/valuation/exception tests + 7 database scenarios (moving average and FIFO layers, duplicate documents, over-receipt approval, negative-stock exception with suggestion and audit rows, valuation lock and bulk/FIFO refusal, plant and tenant isolation, snapshot and request conversion) |
+| Unit/API/DB tests | `bun test` (with `DATABASE_URL` and `ICONCRETE_RLS_URL`) | **338 pass, 0 fail**, 37 files |
+| Data dictionary | `bun run schema:docs` | regenerated from the live schema, 2,563 lines |
+| Build | `bun run build` | success; entry 359.39 kB (106.94 kB gzip), `InventoryListPage` 15.65 kB |
+
+M6 adds `materials`, `supplier_contacts`, `purchase_requests`, `po_items`, `receipt_items`,
+`stock_movements`, `inventory_snapshots`, `inventory_exceptions` and `cost_layers`, and extends the
+existing `suppliers`, `purchase_orders` and `goods_receipts` forward-only (0002 already created
+them for M1). All new tables carry tenant RLS and a restrictive plant policy. `stock_movements` is
+append-only by trigger: a posted row cannot be updated or deleted, so a correction is a new
+movement naming the original. `materials` refuses a hard delete and only allows `active`/`inactive`.
+
+Balances are never stored. Every read derives the balance from the signed movement sum, so a
+receipt, an issue and a snapshot cannot disagree silently; `inventory_snapshots` is a dated copy
+for reconciliation and `generateSnapshot` reports whether it still agrees with the ledger.
+Weighted-average materials re-value on every receipt and issue at the current average; FIFO
+materials consume open `cost_layers` oldest first, with `layer_id` as a stable tie-break, and a
+shortage is reported instead of inventing stock. A bulk material is refused FIFO both when the
+method is chosen and when it is changed, and the method is locked after the first posted movement.
+
+A movement that would take the balance below zero is `mandatory_failure` and is refused; exactly
+zero posts. A level-4 user may override with a reason of at least five characters, which writes an
+`inventory_exceptions` row naming a suggested missing document (an open PO line or a draft
+receipt), emits `inventory.exception_approved`, and keeps the stock position visible instead of
+silently negative. Receiving more than ordered is `approval_required`: level 3 is refused and a
+level-4 confirmation with a reason is recorded.
+
+ECP 203-2007 values remain **not specified in the supplied reference**: `inventory.reorder_level`,
+`inventory.safety_stock`, `inventory.unit_cost_band` and `inventory.moisture_window_hours` are
+seeded with no value and no source note. The reorder and safety warnings evaluate through R1 and
+an unconfigured rule never passes; a unit-cost band that has not been configured is no band at all,
+so it does not block a level-3 receipt, and once configured a breach is `approval_required`. No
+limit was invented and no default was seeded.
+
+Access is enforced by role level: read 1, raise/submit a request, post a receipt or an issue 3,
+approve a request or confirm a PO, adjust stock, decide an exception or approve an over-receipt 4,
+material master, valuation method, cancellation and voiding 5. The plant scope is re-checked in the
+service on every write, and the DB test proves the restricted role sees no foreign rows.
+
+Not executed here: browser/E2E, screen reader, LibreOffice recalculation, deployment, push.
