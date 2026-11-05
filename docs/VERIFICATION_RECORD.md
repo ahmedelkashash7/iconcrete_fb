@@ -400,3 +400,55 @@ activation/void and document cancellation 5. The plant scope is re-checked in th
 write, and the DB test proves the restricted role sees no foreign rows.
 
 Not executed here: browser/E2E, screen reader, LibreOffice recalculation, deployment, push.
+
+---
+
+# Verification record — M8 sales pricing, commitments, CRM and complaints (2026-11-05)
+
+| Step | Command | Result |
+|---|---|---|
+| Typecheck | `bun run typecheck` | 0 errors |
+| Migration on a fresh database | `bun run db:migrate` | `applied: 0001_m1_organization.sql … 0019_m8_sales_crm.sql`; `skipped: none` |
+| Seed | `bun run db:seed` | succeeds; both companies receive the M7 discount rules and the M8 commitment rules |
+| New M8 tests | `bun test tests/m8/sales.test.ts` | **14 pass** — 6 pure precedence/ambiguity/band/rating tests + 8 database scenarios (precedence through a real order, copied price surviving a catalogue change, same-rank ambiguity, missing price, out-of-season refusal, overlapping active lists, 95%/100% commitment bands, complaint↔NCR, activity lifecycle, and tenant/plant RLS on all eight new tables) |
+| Unit/API/DB tests | `bun test` | **367 pass, 0 fail**, 39 files |
+| Data dictionary | `bun run schema:docs` | regenerated, 3,166 lines, 100 tables |
+| Build | `bun run build` | success; entry 386.10 kB (113.18 kB gzip) |
+
+Migration `0019_m8_sales_crm.sql` adds `price_lists`, `price_list_items`,
+`volume_commitments`, `seasonal_prices`, `customer_activities`, `customer_feedback`,
+`complaints` and `price_resolutions`. Every table carries tenant RLS, the restrictive plant policy,
+soft delete and UTC timestamps. `complaints.ncr_id` references the existing quality `ncr` table;
+`complaints_quality_check` refuses a quality-related complaint without one, and the service
+checks the NCR belongs to the same company and plant.
+
+Price resolution happens once, inside `createSalesOrder`. The service gathers the applicable
+contract snapshot lines, active commitments, in-window seasonal prices and active price-list items;
+`choosePrice` picks the lowest rank (contract 1, commitment 2, seasonal 3, list 4). A single
+winner is copied onto `sales_order_items.unit_price` and into `price_resolutions` with its source
+type, source id and rule. Two winners at the same rank are `approval_required`; a level-4 actor may
+only then choose the lower price with a five-character reason, and the row records
+`precedence_ambiguity_override`. No source is always `approval_required` — no zero price, no silent
+fallback. A price-list item's `discount_pct` is applied to the resolved net price; it is evidence,
+not a second order-level discount.
+
+The commitment bands run through R1: `sales.commitment_warn_pct` = 95 (warning) and
+`sales.commitment_approval_pct` = 100 (approval_required), seeded with the M8 execution
+specification as their source note. Removing either value makes the decision
+`approval_required`; nothing defaults. Choosing a commitment increments
+`fulfilled_quantity_m3`, records `sales.commitment_warned` above 95%, and sets the status to
+`fulfilled` only on exact completion. A breach is a separate level-5 decision with a reason.
+
+The M8 test proves the whole chain in one order: list 200 → adding seasonal 220 gives 220 →
+activating a commitment at 250 gives 250 → signing a contract from an approved quotation at 300
+gives 300, and the `price_resolutions` row names the contract. It then updates the price-list item
+to 999 and reads the old order back at 175, unchanged.
+
+Overlapping active lists are refused at activation when the same plant/material/window already has
+an active list (`price_list_overlap`, mandatory failure). Seasonal windows are validated on create
+and only applied inside their own window. Feedback ratings outside 1–5 are refused. Complaints move
+open → investigating → resolved → closed, or rejected with a reason; resolution and rejection need
+level 4, investigation level 3.
+
+Not executed here: browser/E2E, screen reader, deployment, push. The four new screens were
+typechecked, routed, labelled and built, but not rendered.

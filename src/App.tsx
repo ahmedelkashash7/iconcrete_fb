@@ -20,6 +20,10 @@ const SalesOrderPage = lazy(() => import('./pages/SalesOrderPage').then((m) => (
 const QuotationPage = lazy(() => import('./pages/QuotationPage').then((m) => ({ default: m.QuotationPage })));
 const ContractPage = lazy(() => import('./pages/ContractPage').then((m) => ({ default: m.ContractPage })));
 const DeliveryTicketPage = lazy(() => import('./pages/DeliveryTicketPage').then((m) => ({ default: m.DeliveryTicketPage })));
+const PriceListPage = lazy(() => import('./pages/PriceListPage').then((m) => ({ default: m.PriceListPage })));
+const VolumeCommitmentPage = lazy(() => import('./pages/VolumeCommitmentPage').then((m) => ({ default: m.VolumeCommitmentPage })));
+const CrmActivitiesPage = lazy(() => import('./pages/CrmActivitiesPage').then((m) => ({ default: m.CrmActivitiesPage })));
+const ComplaintsPage = lazy(() => import('./pages/ComplaintsPage').then((m) => ({ default: m.ComplaintsPage })));
 const MixDesignsPage = lazy(() => import('./pages/MixDesignsPage').then((m) => ({ default: m.MixDesignsPage })));
 const BatchListPage = lazy(() => import('./pages/BatchListPage').then((m) => ({ default: m.BatchListPage })));
 const QualityListPage = lazy(() => import('./pages/QualityListPage').then((m) => ({ default: m.QualityListPage })));
@@ -110,6 +114,14 @@ export const App = () => {
             <ContractPage />
           ) : page === 'deliveryTickets' ? (
             <DeliveryTicketPage />
+          ) : page === 'priceLists' ? (
+            <PriceListPage />
+          ) : page === 'commitments' ? (
+            <VolumeCommitmentPage />
+          ) : page === 'crm' ? (
+            <CrmActivitiesPage />
+          ) : page === 'complaints' ? (
+            <ComplaintsPage />
           ) : page === 'mixDesigns' ? (
             <MixDesignsPage />
           ) : page === 'batches' ? (

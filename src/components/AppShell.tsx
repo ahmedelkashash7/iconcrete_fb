@@ -10,7 +10,7 @@ import type { Lang } from '../types';
 
 const NAV_GROUPS: Array<{ key: string; pages: PageKey[] }> = [
   { key: 'nav.overview', pages: ['dashboard', 'reports'] },
-  { key: 'nav.sales', pages: ['customers', 'projects', 'quotations', 'contracts', 'orders', 'deliveryTickets'] },
+  { key: 'nav.sales', pages: ['customers', 'projects', 'quotations', 'contracts', 'orders', 'deliveryTickets', 'priceLists', 'commitments', 'crm', 'complaints'] },
   { key: 'nav.data', pages: ['mixDesigns', 'batches', 'quality', 'fleet', 'dispatch', 'excelCenter'] },
   { key: 'nav.inventory', pages: ['inventory', 'purchaseRequests', 'purchaseOrders', 'goodsReceipts'] },
   { key: 'nav.accounting', pages: ['invoices', 'payments', 'statement', 'ledger'] },

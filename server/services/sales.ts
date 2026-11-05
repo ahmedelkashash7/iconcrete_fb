@@ -35,6 +35,28 @@ import {
   type SalesLine,
   type SalesOrderStatus,
 } from '../../src/core/sales';
+import {
+  canActivityTransition,
+  canCommitmentTransition,
+  canComplaintTransition,
+  canPriceListTransition,
+  checkComplaintNcr,
+  checkFeedbackRating,
+  checkPriceDecision,
+  checkPriceListOverlap,
+  checkSeasonWindow,
+  choosePrice,
+  commitmentDecision,
+  CRM_LEVELS,
+  isInsideSeason,
+  missingCommitmentRule,
+  type CommitmentStatus,
+  type ComplaintStatus,
+  type CrmCheck,
+  type PriceCandidate,
+  type PriceListStatus,
+} from '../../src/core/crm';
+import { COMMITMENT_RULE_CODES } from '../../src/core/crm';
 import { MIN_OVERRIDE_REASON, type RuleDefinition } from '../../src/core/rules';
 import type { Db, Executor } from '../db/client';
 import { M1Error } from './m1';
@@ -321,6 +343,156 @@ export class SalesService {
       throw new M1Error('approval_required', 403, check.reasonKey, { check: check.key });
     }
     return check.outcome === 'warning' ? 'warning' : 'pass';
+  };
+
+  private enforceCrm = (
+    check: CrmCheck,
+    context: B1Context,
+    reason: string,
+  ): 'pass' | 'warning' | 'overridden' => {
+    if (check.outcome === 'failure') {
+      throw new M1Error(check.reasonKey.replace(/^sales\./, ''), 422, check.reasonKey, {
+        check: check.key,
+      });
+    }
+    if (check.outcome !== 'pass' && check.outcome !== 'warning') {
+      if (context.actor.roleLevel >= CRM_LEVELS.approve && reason.trim().length >= MIN_OVERRIDE_REASON) {
+        return 'overridden';
+      }
+      throw new M1Error('approval_required', 403, check.reasonKey, { check: check.key });
+    }
+    return check.outcome === 'warning' ? 'warning' : 'pass';
+  };
+
+  /** Every price source that applies to one order line on the order date. */
+  private priceCandidates = async (
+    tx: Executor,
+    context: B1Context,
+    payload: {
+      plantId: string;
+      customerId: string;
+      contractId: string | null;
+      orderDate: string;
+      materialId: string | null;
+      description: string;
+      quantity: number;
+    },
+  ): Promise<PriceCandidate[]> => {
+    const candidates: PriceCandidate[] = [];
+    const description = payload.description.trim().toLowerCase();
+    const materialMatches = (line: { materialId?: string; description?: string }): boolean => {
+      const lineMaterial = (line.materialId ?? '').trim();
+      if (payload.materialId && lineMaterial) return lineMaterial === payload.materialId;
+      const lineDescription = (line.description ?? '').trim().toLowerCase();
+      return description.length > 0 && lineDescription === description;
+    };
+
+    const contractRows = await tx.unsafe<Row>(
+      `select c.id, c.contract_no, qv.snapshot_json
+         from contracts c
+         join quotation_versions qv
+           on qv.company_id = c.company_id and qv.id = c.quotation_version_id
+        where c.company_id = $1 and c.customer_id = $2 and c.deleted_at is null
+          and c.status in ('signed', 'active')
+          and (c.start_date is null or c.start_date <= $3::date)
+          and (c.end_date is null or c.end_date >= $3::date)
+          and ($4::text = '' or c.id = $4)
+        order by c.signed_at nulls last, c.created_at`,
+      [context.tenant.companyId, payload.customerId, payload.orderDate, payload.contractId ?? ''],
+    );
+    for (const row of contractRows) {
+      const snapshot = row.snapshot_json as
+        | { lines?: Array<{ materialId?: string; description?: string; unitPrice?: number }> }
+        | undefined;
+      for (const line of snapshot?.lines ?? []) {
+        if (!materialMatches(line)) continue;
+        candidates.push({
+          sourceType: 'contract',
+          sourceId: str(row.id),
+          price: num(line.unitPrice),
+          label: str(row.contract_no),
+        });
+      }
+    }
+
+    if (payload.materialId) {
+      const commitmentRows = await tx.unsafe<Row>(
+        `select id, commitment_no, special_price::text as special_price
+           from volume_commitments
+          where company_id = $1 and plant_id = $2 and customer_id = $3 and material_id = $4
+            and status = 'active' and deleted_at is null
+            and period_start <= $5::date and period_end >= $5::date
+            and ($6::text = '' or contract_id is null or contract_id = $6)`,
+        [
+          context.tenant.companyId,
+          payload.plantId,
+          payload.customerId,
+          payload.materialId,
+          payload.orderDate,
+          payload.contractId ?? '',
+        ],
+      );
+      for (const row of commitmentRows) {
+        candidates.push({
+          sourceType: 'volume_commitment',
+          sourceId: str(row.id),
+          price: num(row.special_price),
+          label: str(row.commitment_no),
+        });
+      }
+
+      const seasonalRows = await tx.unsafe<Row>(
+        `select id, unit_price::text as unit_price, season_start::text as season_start,
+                season_end::text as season_end
+           from seasonal_prices
+          where company_id = $1 and plant_id = $2 and material_id = $3
+            and status = 'active' and deleted_at is null
+            and (customer_id is null or customer_id = $4)`,
+        [context.tenant.companyId, payload.plantId, payload.materialId, payload.customerId],
+      );
+      for (const row of seasonalRows) {
+        if (!isInsideSeason(str(row.season_start), str(row.season_end), payload.orderDate)) continue;
+        candidates.push({
+          sourceType: 'seasonal',
+          sourceId: str(row.id),
+          price: num(row.unit_price),
+        });
+      }
+
+      const listRows = await tx.unsafe<Row>(
+        `select pl.id, pl.list_code, pli.unit_price::text as unit_price,
+                pli.discount_pct::text as discount_pct
+           from price_lists pl
+           join price_list_items pli
+             on pli.company_id = pl.company_id and pli.price_list_id = pl.id
+            and pli.deleted_at is null
+          where pl.company_id = $1 and pl.plant_id = $2 and pl.status = 'active'
+            and pl.deleted_at is null
+            and pl.valid_from <= $3::date and (pl.valid_until is null or pl.valid_until >= $3::date)
+            and pli.material_id = $4 and pli.min_quantity <= $5::numeric
+            and (pli.valid_from is null or pli.valid_from <= $3::date)
+            and (pli.valid_until is null or pli.valid_until >= $3::date)`,
+        [
+          context.tenant.companyId,
+          payload.plantId,
+          payload.orderDate,
+          payload.materialId,
+          payload.quantity,
+        ],
+      );
+      for (const row of listRows) {
+        const discount = num(row.discount_pct);
+        const net = num(row.unit_price) * (1 - discount / 100);
+        candidates.push({
+          sourceType: 'price_list',
+          sourceId: str(row.id),
+          price: Math.round(net * 100) / 100,
+          label: str(row.list_code),
+        });
+      }
+    }
+
+    return candidates;
   };
 
   // ------------------------------------------------------------------ customers
@@ -1539,7 +1711,7 @@ export class SalesService {
       contractId?: string | null;
       orderDate?: string | null;
       deliveryDate?: string | null;
-      items: SalesOrderItemInput[];
+      items: Array<Omit<SalesOrderItemInput, 'unitPrice'> & { unitPrice?: number }>;
       notes?: string;
       reason?: string;
     },
@@ -1547,24 +1719,6 @@ export class SalesService {
     this.level(context, SALES_LEVELS.create, 'create a sales order');
     const id = newId('SO');
     const reason = payload.reason ?? '';
-    const positive = checkPositiveLines(payload.items);
-    if (positive.outcome !== 'pass') {
-      throw new M1Error('positive_value', 422, 'quantity and price must be positive', {
-        check: positive.key,
-      });
-    }
-    const price = checkPriceResolution(payload.items.map((item) => item.unitPrice));
-    if (price.outcome !== 'pass') {
-      throw new M1Error('approval_required', 403, 'every line needs a resolved price', {
-        check: price.key,
-      });
-    }
-    const lines = payload.items.map((item) => ({
-      ...item,
-      discountPct: item.discountPct ?? 0,
-      taxRate: item.taxRate ?? 0,
-    }));
-    const total = sumLines(lines);
     return this.db.withTenant(context.tenant, async (tx) => {
       this.assertPlant(context, payload.plantId);
       const customer = await this.readCustomer(tx, context, payload.customerId);
@@ -1574,8 +1728,8 @@ export class SalesService {
           check: blacklist.key,
         });
       }
-      const reference = checkSalesReference(payload.quotationId ?? null, payload.contractId ?? null);
-      this.enforce(reference, context, reason);
+      const orderDate = payload.orderDate?.trim() || today();
+      const rules = await this.rules(tx, context.tenant.companyId);
 
       let quotationId = payload.quotationId?.trim() || null;
       let contractId = payload.contractId?.trim() || null;
@@ -1632,13 +1786,120 @@ export class SalesService {
             field: 'customerId',
           });
         }
-        const validity = checkQuotationValidity(str(quotation.valid_until), today());
+        const validity = checkQuotationValidity(str(quotation.valid_until), orderDate);
         if (validity.outcome === 'failure') {
           throw new M1Error('quotation_expired', 422, 'the quotation has expired', {
             check: validity.key,
           });
         }
       }
+
+      interface ResolvedPricing {
+        candidate: PriceCandidate;
+        rule: string;
+      }
+      const lines: Array<
+        SalesLine & { materialId: string | null; description: string; pricing: ResolvedPricing | null }
+      > = [];
+      const commitmentUses: Array<{
+        commitmentId: string;
+        quantity: number;
+        decision: ReturnType<typeof commitmentDecision>;
+      }> = [];
+
+      for (const item of payload.items) {
+        const supplied = Number(item.unitPrice);
+        let unitPrice = supplied;
+        let pricing: ResolvedPricing | null = null;
+
+        if (!Number.isFinite(supplied) || supplied <= 0) {
+          const candidates = await this.priceCandidates(tx, context, {
+            plantId: payload.plantId,
+            customerId: customer.id,
+            contractId,
+            orderDate,
+            materialId: item.materialId ?? null,
+            description: item.description ?? '',
+            quantity: item.quantity,
+          });
+          const decision = choosePrice(candidates);
+          if (decision.outcome === 'none') {
+            throw new M1Error('approval_required', 403, 'no applicable price for this line', {
+              check: 'pricePrecedence',
+              line: item.materialId ?? item.description ?? '',
+            });
+          }
+          if (decision.outcome === 'ambiguous') {
+            this.enforceCrm(checkPriceDecision(decision), context, reason);
+            const chosen = [...decision.candidates].sort(
+              (a, b) => a.price - b.price || a.sourceId.localeCompare(b.sourceId),
+            )[0]!;
+            unitPrice = chosen.price;
+            pricing = { candidate: chosen, rule: 'precedence_ambiguity_override' };
+          } else {
+            unitPrice = decision.candidate.price;
+            pricing = { candidate: decision.candidate, rule: `precedence:${decision.candidate.sourceType}` };
+          }
+
+          if (pricing.candidate.sourceType === 'volume_commitment') {
+            const commitmentRows = await tx.unsafe<Row>(
+              `select committed_quantity_m3::text as committed,
+                      fulfilled_quantity_m3::text as fulfilled
+                 from volume_commitments
+                where company_id = $1 and id = $2 and deleted_at is null`,
+              [context.tenant.companyId, pricing.candidate.sourceId],
+            );
+            const commitment = commitmentRows[0];
+            if (commitment) {
+              const decisionC = commitmentDecision(
+                num(commitment.committed),
+                num(commitment.fulfilled),
+                item.quantity,
+                rules.get(COMMITMENT_RULE_CODES.warn) ?? missingCommitmentRule('warn'),
+                rules.get(COMMITMENT_RULE_CODES.approval) ?? missingCommitmentRule('approval'),
+              );
+              this.enforceCrm(decisionC.check, context, reason);
+              commitmentUses.push({
+                commitmentId: pricing.candidate.sourceId,
+                quantity: item.quantity,
+                decision: decisionC,
+              });
+            }
+          }
+        }
+
+        lines.push({
+          materialId: item.materialId ?? null,
+          description: item.description ?? '',
+          quantity: item.quantity,
+          unitPrice,
+          discountPct: item.discountPct ?? 0,
+          taxRate: item.taxRate ?? 0,
+          pricing,
+        });
+      }
+
+      const positive = checkPositiveLines(lines);
+      if (positive.outcome !== 'pass') {
+        throw new M1Error('positive_value', 422, 'quantity and price must be positive', {
+          check: positive.key,
+        });
+      }
+      const price = checkPriceResolution(lines.map((line) => line.unitPrice));
+      if (price.outcome !== 'pass') {
+        throw new M1Error('approval_required', 403, 'every line needs a resolved price', {
+          check: price.key,
+        });
+      }
+
+      const resolvedContract = lines.find(
+        (line) => line.pricing?.candidate.sourceType === 'contract',
+      )?.pricing?.candidate.sourceId;
+      if (!contractId && resolvedContract) contractId = resolvedContract;
+      const reference = lines.some((line) => line.pricing)
+        ? checkSalesReference('resolved', null)
+        : checkSalesReference(quotationId, contractId);
+      this.enforce(reference, context, reason);
 
       if (contractLimit !== null) {
         const committedRows = await tx.unsafe<Row>(
@@ -1654,7 +1915,6 @@ export class SalesService {
         this.enforce(limitCheck, context, reason);
       }
 
-      const rules = await this.rules(tx, context.tenant.companyId);
       const discounts = checkDiscounts(
         this.ruleFor(rules, 'discountApproval'),
         this.ruleFor(rules, 'discountMax'),
@@ -1662,6 +1922,7 @@ export class SalesService {
       );
       this.enforce(discounts, context, reason);
 
+      const total = sumLines(lines);
       const exposureBefore = await this.exposureFor(tx, context, customer.id);
       const credit = creditDecision(exposureBefore + total, customer.effective_limit || null);
       this.enforce(credit.check, context, reason);
@@ -1701,7 +1962,7 @@ export class SalesService {
           grade,
           headerQuantity,
           lines[0]?.unitPrice ?? 0,
-          payload.orderDate ?? today(),
+          orderDate,
           payload.deliveryDate ?? null,
           payload.notes ?? '',
           quotationId,
@@ -1712,13 +1973,14 @@ export class SalesService {
         ],
       );
       for (const [index, line] of lines.entries()) {
+        const itemId = newId('SOI');
         await tx.unsafe(
           `insert into sales_order_items (id, company_id, plant_id, order_id, line_no, material_id,
               description, quantity, unit_price, discount_pct, tax_rate, line_total,
               created_by, updated_by)
            values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13)`,
           [
-            newId('SOI'),
+            itemId,
             context.tenant.companyId,
             payload.plantId,
             id,
@@ -1733,6 +1995,47 @@ export class SalesService {
             context.actor.username,
           ],
         );
+        if (line.pricing) {
+          await tx.unsafe(
+            `insert into price_resolutions (id, company_id, plant_id, order_id, order_item_id,
+                line_no, material_id, quantity_m3, source_type, source_id, resolved_price,
+                resolved_by_rule, decided_by, created_by, updated_by)
+             values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13,$13)`,
+            [
+              newId('PRS'),
+              context.tenant.companyId,
+              payload.plantId,
+              id,
+              itemId,
+              index + 1,
+              line.materialId,
+              line.quantity,
+              line.pricing.candidate.sourceType,
+              line.pricing.candidate.sourceId,
+              line.unitPrice,
+              line.pricing.rule,
+              context.actor.username,
+            ],
+          );
+        }
+      }
+      for (const use of commitmentUses) {
+        await tx.unsafe(
+          `update volume_commitments
+              set fulfilled_quantity_m3 = fulfilled_quantity_m3 + $3,
+                  status = case when fulfilled_quantity_m3 + $3 = committed_quantity_m3
+                                then 'fulfilled' else status end,
+                  updated_by = $4
+            where company_id = $1 and id = $2 and deleted_at is null`,
+          [context.tenant.companyId, use.commitmentId, use.quantity, context.actor.username],
+        );
+        if (use.decision.outcome === 'warning') {
+          await audit(tx, context, 'sales.commitment_warned', use.commitmentId, {
+            orderId: id,
+            ratio: use.decision.ratio,
+            projected: use.decision.projected,
+          });
+        }
       }
       if (credit.band === 'warn') {
         await audit(tx, context, 'sales.credit_warned', id, {
@@ -2159,6 +2462,1132 @@ export class SalesService {
       await audit(tx, context, `delivery.ticket_${to}`, id, { reason });
       return this.readTicket(tx, context, id);
     });
+  // ---------------------------------------------------------------- M8 price lists
+
+  private toPriceList = (row: Row): Record<string, unknown> => ({
+    id: str(row.id),
+    plant_id: str(row.plant_id),
+    list_code: str(row.list_code),
+    name: str(row.name),
+    currency: str(row.currency),
+    valid_from: str(row.valid_from),
+    valid_until: nullable(row.valid_until),
+    status: str(row.status) as PriceListStatus,
+    notes: str(row.notes),
+    item_count: num(row.item_count),
+    items: row.items ?? undefined,
+  });
+
+  private toPriceListItem = (row: Row): Record<string, unknown> => ({
+    id: str(row.id),
+    price_list_id: str(row.price_list_id),
+    material_id: str(row.material_id),
+    material_code: str(row.material_code),
+    material_name: str(row.material_name),
+    unit_price: num(row.unit_price),
+    min_quantity: num(row.min_quantity),
+    discount_pct: num(row.discount_pct),
+    valid_from: nullable(row.valid_from),
+    valid_until: nullable(row.valid_until),
+  });
+
+  listPriceLists = async (
+    context: B1Context,
+    filters: { plantId?: string; status?: string; q?: string } = {},
+  ): Promise<Array<Record<string, unknown>>> => {
+    this.level(context, CRM_LEVELS.read, 'read price lists');
+    const rows = await this.db.withTenant(context.tenant, (tx) =>
+      tx.unsafe<Row>(
+        `select pl.id, pl.plant_id, pl.list_code, pl.name, pl.currency,
+                pl.valid_from::text as valid_from, pl.valid_until::text as valid_until,
+                pl.status, pl.notes,
+                (select count(*) from price_list_items i
+                  where i.company_id = pl.company_id and i.price_list_id = pl.id
+                    and i.deleted_at is null)::text as item_count
+           from price_lists pl
+          where pl.company_id = $1 and pl.deleted_at is null
+            and ($2::text = '' or pl.plant_id = $2)
+            and ($3::text = '' or pl.status = $3)
+            and ($4::text = '' or pl.list_code ilike '%' || $4 || '%' or pl.name ilike '%' || $4 || '%')
+          order by pl.valid_from desc, pl.list_code`,
+        [context.tenant.companyId, filters.plantId ?? '', filters.status ?? '', filters.q ?? ''],
+      ),
+    );
+    return rows.map(this.toPriceList);
+  };
+
+  getPriceList = async (context: B1Context, id: string): Promise<Record<string, unknown>> => {
+    this.level(context, CRM_LEVELS.read, 'read a price list');
+    return this.db.withTenant(context.tenant, (tx) => this.readPriceList(tx, context, id));
+  };
+
+  private readPriceList = async (
+    tx: Executor,
+    context: B1Context,
+    id: string,
+  ): Promise<Record<string, unknown>> => {
+    const rows = await tx.unsafe<Row>(
+      `select pl.id, pl.plant_id, pl.list_code, pl.name, pl.currency,
+              pl.valid_from::text as valid_from, pl.valid_until::text as valid_until,
+              pl.status, pl.notes
+         from price_lists pl
+        where pl.company_id = $1 and pl.id = $2 and pl.deleted_at is null`,
+      [context.tenant.companyId, id],
+    );
+    if (!rows[0]) throw new M1Error('price_list_not_found', 404, `price list ${id} does not exist`);
+    const items = await tx.unsafe<Row>(
+      `select i.id, i.price_list_id, i.material_id, m.material_code, m.name_en as material_name,
+              i.unit_price::text as unit_price, i.min_quantity::text as min_quantity,
+              i.discount_pct::text as discount_pct, i.valid_from::text as valid_from,
+              i.valid_until::text as valid_until
+         from price_list_items i
+         join materials m on m.company_id = i.company_id and m.id = i.material_id
+        where i.company_id = $1 and i.price_list_id = $2 and i.deleted_at is null
+        order by m.material_code, i.min_quantity`,
+      [context.tenant.companyId, id],
+    );
+    return { ...this.toPriceList(rows[0]), items: items.map(this.toPriceListItem) };
+  };
+
+  createPriceList = async (
+    context: B1Context,
+    payload: {
+      plantId: string;
+      listCode: string;
+      name: string;
+      currency?: string;
+      validFrom: string;
+      validUntil?: string | null;
+      notes?: string;
+    },
+  ): Promise<Record<string, unknown>> => {
+    this.level(context, CRM_LEVELS.pricing, 'create a price list');
+    this.assertPlant(context, payload.plantId);
+    if (!payload.listCode.trim() || !payload.name.trim()) {
+      throw new M1Error('validation_error', 422, 'list code and name are required', {
+        field: 'listCode',
+      });
+    }
+    if (!payload.validFrom || (payload.validUntil && payload.validUntil < payload.validFrom)) {
+      throw new M1Error('validation_error', 422, 'the validity window is invalid', {
+        field: 'validFrom',
+      });
+    }
+    const id = newId('PRL');
+    return this.db.withTenant(context.tenant, async (tx) => {
+      const duplicate =
+        (
+          await tx.unsafe<Row>(
+            `select 1 from price_lists where company_id = $1 and lower(list_code) = lower($2)
+               and deleted_at is null`,
+            [context.tenant.companyId, payload.listCode.trim()],
+          )
+        ).length > 0;
+      if (duplicate) {
+        throw new M1Error('duplicate_price_list', 422, 'price list code must be unique');
+      }
+      await tx.unsafe(
+        `insert into price_lists (id, company_id, plant_id, list_code, name, currency, valid_from,
+            valid_until, notes, created_by, updated_by)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)`,
+        [
+          id,
+          context.tenant.companyId,
+          payload.plantId,
+          payload.listCode.trim(),
+          payload.name.trim(),
+          payload.currency ?? 'EGP',
+          payload.validFrom,
+          payload.validUntil ?? null,
+          payload.notes ?? '',
+          context.actor.username,
+        ],
+      );
+      await audit(tx, context, 'sales.price_list_created', id, { listCode: payload.listCode });
+      return this.readPriceList(tx, context, id);
+    });
+  };
+
+  addPriceListItem = async (
+    context: B1Context,
+    priceListId: string,
+    payload: {
+      materialId: string;
+      unitPrice: number;
+      minQuantity?: number;
+      discountPct?: number;
+      validFrom?: string | null;
+      validUntil?: string | null;
+    },
+  ): Promise<Record<string, unknown>> => {
+    this.level(context, CRM_LEVELS.pricing, 'add a price list item');
+    if (!Number.isFinite(payload.unitPrice) || payload.unitPrice <= 0) {
+      throw new M1Error('positive_value', 422, 'unit price must be positive', { field: 'unitPrice' });
+    }
+    return this.db.withTenant(context.tenant, async (tx) => {
+      const list = await this.readPriceList(tx, context, priceListId);
+      if (str(list.status) !== 'draft') {
+        throw new M1Error('price_list_locked', 422, 'items may only be added to a draft price list');
+      }
+      const material = await tx.unsafe<Row>(
+        `select id from materials where company_id = $1 and id = $2 and deleted_at is null`,
+        [context.tenant.companyId, payload.materialId],
+      );
+      if (!material[0]) throw new M1Error('material_not_found', 404, 'material does not exist');
+      const id = newId('PLI');
+      await tx.unsafe(
+        `insert into price_list_items (id, company_id, plant_id, price_list_id, material_id,
+            unit_price, min_quantity, discount_pct, valid_from, valid_until, created_by, updated_by)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11)`,
+        [
+          id,
+          context.tenant.companyId,
+          str(list.plant_id),
+          priceListId,
+          payload.materialId,
+          payload.unitPrice,
+          payload.minQuantity ?? 0,
+          payload.discountPct ?? 0,
+          payload.validFrom ?? null,
+          payload.validUntil ?? null,
+          context.actor.username,
+        ],
+      );
+      await audit(tx, context, 'sales.price_list_item_added', id, { priceListId });
+      return this.readPriceList(tx, context, priceListId);
+    });
+  };
+
+  activatePriceList = async (
+    context: B1Context,
+    id: string,
+  ): Promise<Record<string, unknown>> => {
+    this.level(context, CRM_LEVELS.approve, 'activate a price list');
+    return this.db.withTenant(context.tenant, async (tx) => {
+      const list = await this.readPriceList(tx, context, id);
+      if (!canPriceListTransition(list.status as PriceListStatus, 'active')) {
+        throw new M1Error('invalid_transition', 409, `price list ${id} is ${str(list.status)}`);
+      }
+      const items = (list.items ?? []) as Array<Record<string, unknown>>;
+      if (items.length === 0) {
+        throw new M1Error('validation_error', 422, 'a price list needs at least one item');
+      }
+      const active = await tx.unsafe<Row>(
+        `select distinct pl.list_code, pl.valid_from::text as valid_from,
+                pl.valid_until::text as valid_until, i.material_id
+           from price_lists pl
+           join price_list_items i
+             on i.company_id = pl.company_id and i.price_list_id = pl.id and i.deleted_at is null
+          where pl.company_id = $1 and pl.plant_id = $2 and pl.status = 'active'
+            and pl.deleted_at is null and pl.id <> $3
+            and i.material_id in (select material_id from price_list_items
+                                   where company_id = $1 and price_list_id = $3
+                                     and deleted_at is null)`,
+        [context.tenant.companyId, str(list.plant_id), id],
+      );
+      for (const row of active) {
+        const overlap = checkPriceListOverlap(
+          { from: str(list.valid_from), to: nullable(list.valid_until) },
+          [{ from: str(row.valid_from), to: nullable(row.valid_until) }],
+        );
+        if (overlap.outcome === 'failure') {
+          throw new M1Error('price_list_overlap', 422, 'an active price list already covers this material and window', {
+            check: overlap.key,
+            listCode: str(row.list_code),
+            materialId: str(row.material_id),
+          });
+        }
+      }
+      await tx.unsafe(
+        `update price_lists set status = 'active', updated_by = $3
+          where company_id = $1 and id = $2`,
+        [context.tenant.companyId, id, context.actor.username],
+      );
+      await audit(tx, context, 'sales.price_list_activated', id, { listCode: str(list.list_code) });
+      return this.readPriceList(tx, context, id);
+    });
+  };
+
+  expirePriceList = async (
+    context: B1Context,
+    id: string,
+  ): Promise<Record<string, unknown>> => {
+    this.level(context, CRM_LEVELS.approve, 'expire a price list');
+    return this.db.withTenant(context.tenant, async (tx) => {
+      const list = await this.readPriceList(tx, context, id);
+      if (!canPriceListTransition(list.status as PriceListStatus, 'expired')) {
+        throw new M1Error('invalid_transition', 409, `price list ${id} is ${str(list.status)}`);
+      }
+      await tx.unsafe(
+        `update price_lists set status = 'expired', updated_by = $3
+          where company_id = $1 and id = $2`,
+        [context.tenant.companyId, id, context.actor.username],
+      );
+      await audit(tx, context, 'sales.price_list_expired', id, {});
+      return this.readPriceList(tx, context, id);
+    });
+  };
+
+  supersedePriceList = async (
+    context: B1Context,
+    id: string,
+    reason: string,
+  ): Promise<Record<string, unknown>> => {
+    this.level(context, CRM_LEVELS.supersede, 'supersede an active price list');
+    if (reason.trim().length < MIN_OVERRIDE_REASON) {
+      throw new M1Error('validation_error', 422, `reason must be at least ${MIN_OVERRIDE_REASON} characters`, {
+        field: 'reason',
+      });
+    }
+    return this.db.withTenant(context.tenant, async (tx) => {
+      const list = await this.readPriceList(tx, context, id);
+      if (!canPriceListTransition(list.status as PriceListStatus, 'superseded')) {
+        throw new M1Error('invalid_transition', 409, `price list ${id} is ${str(list.status)}`);
+      }
+      await tx.unsafe(
+        `update price_lists set status = 'superseded', updated_by = $3
+          where company_id = $1 and id = $2`,
+        [context.tenant.companyId, id, context.actor.username],
+      );
+      await audit(tx, context, 'sales.price_list_superseded', id, { reason });
+      return this.readPriceList(tx, context, id);
+    });
+  };
+
+  // ----------------------------------------------------------- M8 commitments
+
+  private toCommitment = (row: Row): Record<string, unknown> => {
+    const committed = num(row.committed_quantity_m3);
+    const fulfilled = num(row.fulfilled_quantity_m3);
+    return {
+      id: str(row.id),
+      plant_id: str(row.plant_id),
+      commitment_no: str(row.commitment_no),
+      customer_id: str(row.customer_id),
+      customer_name: str(row.customer_name),
+      contract_id: nullable(row.contract_id),
+      material_id: str(row.material_id),
+      material_code: str(row.material_code),
+      material_name: str(row.material_name),
+      committed_quantity_m3: committed,
+      fulfilled_quantity_m3: fulfilled,
+      fulfilment_pct: committed > 0 ? (fulfilled / committed) * 100 : 0,
+      period_start: str(row.period_start),
+      period_end: str(row.period_end),
+      special_price: num(row.special_price),
+      status: str(row.status) as CommitmentStatus,
+      notes: str(row.notes),
+    };
+  };
+
+  listVolumeCommitments = async (
+    context: B1Context,
+    filters: { plantId?: string; status?: string; customerId?: string } = {},
+  ): Promise<Array<Record<string, unknown>>> => {
+    this.level(context, CRM_LEVELS.read, 'read volume commitments');
+    const rows = await this.db.withTenant(context.tenant, (tx) =>
+      tx.unsafe<Row>(
+        `select v.id, v.plant_id, v.commitment_no, v.customer_id, c.name_ar as customer_name,
+                v.contract_id, v.material_id, m.material_code, m.name_en as material_name,
+                v.committed_quantity_m3::text as committed_quantity_m3,
+                v.fulfilled_quantity_m3::text as fulfilled_quantity_m3,
+                v.period_start::text as period_start, v.period_end::text as period_end,
+                v.special_price::text as special_price, v.status, v.notes
+           from volume_commitments v
+           join customers c on c.company_id = v.company_id and c.id = v.customer_id
+           join materials m on m.company_id = v.company_id and m.id = v.material_id
+          where v.company_id = $1 and v.deleted_at is null
+            and ($2::text = '' or v.plant_id = $2)
+            and ($3::text = '' or v.status = $3)
+            and ($4::text = '' or v.customer_id = $4)
+          order by v.period_start desc, v.commitment_no`,
+        [
+          context.tenant.companyId,
+          filters.plantId ?? '',
+          filters.status ?? '',
+          filters.customerId ?? '',
+        ],
+      ),
+    );
+    return rows.map(this.toCommitment);
+  };
+
+  createVolumeCommitment = async (
+    context: B1Context,
+    payload: {
+      plantId: string;
+      commitmentNo: string;
+      customerId: string;
+      contractId?: string | null;
+      materialId: string;
+      committedQuantityM3: number;
+      periodStart: string;
+      periodEnd: string;
+      specialPrice: number;
+      notes?: string;
+    },
+  ): Promise<Record<string, unknown>> => {
+    this.level(context, CRM_LEVELS.pricing, 'create a volume commitment');
+    this.assertPlant(context, payload.plantId);
+    if (
+      !Number.isFinite(payload.committedQuantityM3) ||
+      payload.committedQuantityM3 <= 0 ||
+      !Number.isFinite(payload.specialPrice) ||
+      payload.specialPrice <= 0 ||
+      !payload.periodStart ||
+      !payload.periodEnd ||
+      payload.periodEnd < payload.periodStart
+    ) {
+      throw new M1Error('validation_error', 422, 'commitment quantity, price and period are required');
+    }
+    const id = newId('VCM');
+    return this.db.withTenant(context.tenant, async (tx) => {
+      const customer = await this.readCustomer(tx, context, payload.customerId);
+      if (customer.plant_id && customer.plant_id !== payload.plantId) {
+        throw new M1Error('plant_scope', 403, 'customer belongs to another plant');
+      }
+      if (payload.contractId) {
+        const contract = await tx.unsafe<Row>(
+          `select id, customer_id, status from contracts
+            where company_id = $1 and id = $2 and deleted_at is null`,
+          [context.tenant.companyId, payload.contractId],
+        );
+        if (!contract[0]) throw new M1Error('contract_not_found', 404, 'contract does not exist');
+        if (str(contract[0].customer_id) !== payload.customerId) {
+          throw new M1Error('customer_mismatch', 422, 'contract belongs to another customer');
+        }
+      }
+      const duplicate =
+        (
+          await tx.unsafe<Row>(
+            `select 1 from volume_commitments where company_id = $1
+               and lower(commitment_no) = lower($2) and deleted_at is null`,
+            [context.tenant.companyId, payload.commitmentNo.trim()],
+          )
+        ).length > 0;
+      if (duplicate) {
+        throw new M1Error('duplicate_commitment', 422, 'commitment number must be unique');
+      }
+      await tx.unsafe(
+        `insert into volume_commitments (id, company_id, plant_id, commitment_no, customer_id,
+            contract_id, material_id, committed_quantity_m3, period_start, period_end, special_price,
+            notes, created_by, updated_by)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13)`,
+        [
+          id,
+          context.tenant.companyId,
+          payload.plantId,
+          payload.commitmentNo.trim(),
+          payload.customerId,
+          payload.contractId ?? null,
+          payload.materialId,
+          payload.committedQuantityM3,
+          payload.periodStart,
+          payload.periodEnd,
+          payload.specialPrice,
+          payload.notes ?? '',
+          context.actor.username,
+        ],
+      );
+      await audit(tx, context, 'sales.commitment_created', id, {
+        commitmentNo: payload.commitmentNo,
+      });
+      return this.readCommitment(tx, context, id);
+    });
+  };
+
+  private readCommitment = async (
+    tx: Executor,
+    context: B1Context,
+    id: string,
+  ): Promise<Record<string, unknown>> => {
+    const rows = await tx.unsafe<Row>(
+      `select v.id, v.plant_id, v.commitment_no, v.customer_id, c.name_ar as customer_name,
+              v.contract_id, v.material_id, m.material_code, m.name_en as material_name,
+              v.committed_quantity_m3::text as committed_quantity_m3,
+              v.fulfilled_quantity_m3::text as fulfilled_quantity_m3,
+              v.period_start::text as period_start, v.period_end::text as period_end,
+              v.special_price::text as special_price, v.status, v.notes
+         from volume_commitments v
+         join customers c on c.company_id = v.company_id and c.id = v.customer_id
+         join materials m on m.company_id = v.company_id and m.id = v.material_id
+        where v.company_id = $1 and v.id = $2 and v.deleted_at is null`,
+      [context.tenant.companyId, id],
+    );
+    if (!rows[0]) throw new M1Error('commitment_not_found', 404, 'commitment does not exist');
+    return this.toCommitment(rows[0]);
+  };
+
+  private commitmentTransition = async (
+    context: B1Context,
+    id: string,
+    to: CommitmentStatus,
+    reason: string,
+  ): Promise<Record<string, unknown>> =>
+    this.db.withTenant(context.tenant, async (tx) => {
+      const rows = await tx.unsafe<Row>(
+        `select status from volume_commitments
+          where company_id = $1 and id = $2 and deleted_at is null`,
+        [context.tenant.companyId, id],
+      );
+      if (!rows[0]) throw new M1Error('commitment_not_found', 404, 'commitment does not exist');
+      const from = str(rows[0].status) as CommitmentStatus;
+      if (!canCommitmentTransition(from, to)) {
+        throw new M1Error('invalid_transition', 409, `commitment ${id} is ${from}`, { from, to });
+      }
+      await tx.unsafe(
+        `update volume_commitments set status = $3, updated_by = $4
+          where company_id = $1 and id = $2`,
+        [context.tenant.companyId, id, to, context.actor.username],
+      );
+      await audit(tx, context, `sales.commitment_${to}`, id, { reason });
+      return this.readCommitment(tx, context, id);
+    });
+
+  activateCommitment = async (context: B1Context, id: string): Promise<Record<string, unknown>> => {
+    this.level(context, CRM_LEVELS.pricing, 'activate a volume commitment');
+    return this.commitmentTransition(context, id, 'active', 'activated');
+  };
+
+  breachCommitment = async (
+    context: B1Context,
+    id: string,
+    reason: string,
+  ): Promise<Record<string, unknown>> => {
+    this.level(context, CRM_LEVELS.supersede, 'record a commitment breach');
+    if (reason.trim().length < MIN_OVERRIDE_REASON) {
+      throw new M1Error('validation_error', 422, 'a breach needs a reason', { field: 'reason' });
+    }
+    return this.commitmentTransition(context, id, 'breached', reason);
+  };
+
+  expireCommitment = async (
+    context: B1Context,
+    id: string,
+  ): Promise<Record<string, unknown>> => {
+    this.level(context, CRM_LEVELS.approve, 'expire a volume commitment');
+    return this.commitmentTransition(context, id, 'expired', 'expired');
+  };
+
+  cancelCommitment = async (
+    context: B1Context,
+    id: string,
+    reason: string,
+  ): Promise<Record<string, unknown>> => {
+    this.level(context, CRM_LEVELS.pricing, 'cancel a volume commitment');
+    return this.commitmentTransition(context, id, 'cancelled', reason);
+  };
+
+  // -------------------------------------------------------------- M8 seasonal prices
+
+  listSeasonalPrices = async (
+    context: B1Context,
+    filters: { plantId?: string; materialId?: string; customerId?: string } = {},
+  ): Promise<Array<Record<string, unknown>>> => {
+    this.level(context, CRM_LEVELS.read, 'read seasonal prices');
+    const rows = await this.db.withTenant(context.tenant, (tx) =>
+      tx.unsafe<Row>(
+        `select s.id, s.plant_id, s.customer_id, c.name_ar as customer_name, s.material_id,
+                m.material_code, m.name_en as material_name,
+                s.season_start::text as season_start, s.season_end::text as season_end,
+                s.unit_price::text as unit_price, s.status, s.notes
+           from seasonal_prices s
+           join materials m on m.company_id = s.company_id and m.id = s.material_id
+           left join customers c on c.company_id = s.company_id and c.id = s.customer_id
+          where s.company_id = $1 and s.deleted_at is null
+            and ($2::text = '' or s.plant_id = $2)
+            and ($3::text = '' or s.material_id = $3)
+            and ($4::text = '' or s.customer_id = $4)
+          order by s.season_start desc`,
+        [
+          context.tenant.companyId,
+          filters.plantId ?? '',
+          filters.materialId ?? '',
+          filters.customerId ?? '',
+        ],
+      ),
+    );
+    return rows.map((row) => ({
+      id: str(row.id),
+      plant_id: str(row.plant_id),
+      customer_id: nullable(row.customer_id),
+      customer_name: str(row.customer_name),
+      material_id: str(row.material_id),
+      material_code: str(row.material_code),
+      material_name: str(row.material_name),
+      season_start: str(row.season_start),
+      season_end: str(row.season_end),
+      unit_price: num(row.unit_price),
+      status: str(row.status),
+      notes: str(row.notes),
+    }));
+  };
+
+  createSeasonalPrice = async (
+    context: B1Context,
+    payload: {
+      plantId: string;
+      customerId?: string | null;
+      materialId: string;
+      seasonStart: string;
+      seasonEnd: string;
+      unitPrice: number;
+      notes?: string;
+    },
+  ): Promise<Record<string, unknown>> => {
+    this.level(context, CRM_LEVELS.pricing, 'create a seasonal price');
+    this.assertPlant(context, payload.plantId);
+    const window = checkSeasonWindow(payload.seasonStart, payload.seasonEnd);
+    this.enforceCrm(window, context, '');
+    if (!Number.isFinite(payload.unitPrice) || payload.unitPrice <= 0) {
+      throw new M1Error('positive_value', 422, 'unit price must be positive');
+    }
+    const id = newId('SEA');
+    return this.db.withTenant(context.tenant, async (tx) => {
+      await tx.unsafe(
+        `insert into seasonal_prices (id, company_id, plant_id, customer_id, material_id,
+            season_start, season_end, unit_price, notes, created_by, updated_by)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)`,
+        [
+          id,
+          context.tenant.companyId,
+          payload.plantId,
+          payload.customerId ?? null,
+          payload.materialId,
+          payload.seasonStart,
+          payload.seasonEnd,
+          payload.unitPrice,
+          payload.notes ?? '',
+          context.actor.username,
+        ],
+      );
+      await audit(tx, context, 'sales.seasonal_price_created', id, {});
+      const rows = await this.listSeasonalPrices(context, { plantId: payload.plantId });
+      return rows.find((row) => row.id === id)!;
+    });
+  };
+
+  // ------------------------------------------------------------------ M8 CRM
+
+  listActivities = async (
+    context: B1Context,
+    filters: { customerId?: string; activityType?: string; status?: string; plantId?: string } = {},
+  ): Promise<Array<Record<string, unknown>>> => {
+    this.level(context, CRM_LEVELS.read, 'read customer activities');
+    const rows = await this.db.withTenant(context.tenant, (tx) =>
+      tx.unsafe<Row>(
+        `select a.id, a.plant_id, a.activity_no, a.customer_id, c.name_ar as customer_name,
+                a.activity_type, a.subject, a.description, a.occurred_at::text as occurred_at,
+                a.due_at::text as due_at, a.assigned_to, a.status, a.outcome
+           from customer_activities a
+           join customers c on c.company_id = a.company_id and c.id = a.customer_id
+          where a.company_id = $1 and a.deleted_at is null
+            and ($2::text = '' or a.customer_id = $2)
+            and ($3::text = '' or a.activity_type = $3)
+            and ($4::text = '' or a.status = $4)
+            and ($5::text = '' or a.plant_id = $5)
+          order by a.occurred_at desc`,
+        [
+          context.tenant.companyId,
+          filters.customerId ?? '',
+          filters.activityType ?? '',
+          filters.status ?? '',
+          filters.plantId ?? '',
+        ],
+      ),
+    );
+    return rows.map((row) => ({
+      id: str(row.id),
+      plant_id: str(row.plant_id),
+      activity_no: str(row.activity_no),
+      customer_id: str(row.customer_id),
+      customer_name: str(row.customer_name),
+      activity_type: str(row.activity_type),
+      subject: str(row.subject),
+      description: str(row.description),
+      occurred_at: str(row.occurred_at),
+      due_at: nullable(row.due_at),
+      assigned_to: str(row.assigned_to),
+      status: str(row.status),
+      outcome: str(row.outcome),
+    }));
+  };
+
+  createActivity = async (
+    context: B1Context,
+    payload: {
+      plantId: string;
+      activityNo?: string;
+      customerId: string;
+      activityType: string;
+      subject: string;
+      description?: string;
+      occurredAt?: string;
+      dueAt?: string | null;
+      assignedTo?: string;
+    },
+  ): Promise<Record<string, unknown>> => {
+    this.level(context, CRM_LEVELS.activity, 'create a customer activity');
+    this.assertPlant(context, payload.plantId);
+    if (!payload.subject.trim()) {
+      throw new M1Error('validation_error', 422, 'subject is required', { field: 'subject' });
+    }
+    const id = newId('ACT');
+    return this.db.withTenant(context.tenant, async (tx) => {
+      const number = (payload.activityNo ?? '').trim() || documentNo('ACT');
+      const duplicate =
+        (
+          await tx.unsafe<Row>(
+            `select 1 from customer_activities where company_id = $1
+               and lower(activity_no) = lower($2) and deleted_at is null`,
+            [context.tenant.companyId, number],
+          )
+        ).length > 0;
+      if (duplicate) {
+        throw new M1Error('duplicate_activity', 422, 'activity number must be unique');
+      }
+      await tx.unsafe(
+        `insert into customer_activities (id, company_id, plant_id, activity_no, customer_id,
+            activity_type, subject, description, occurred_at, due_at, assigned_to, created_by, updated_by)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,coalesce($9::timestamptz, now()),$10,$11,$12,$12)`,
+        [
+          id,
+          context.tenant.companyId,
+          payload.plantId,
+          number,
+          payload.customerId,
+          payload.activityType,
+          payload.subject.trim(),
+          payload.description ?? '',
+          payload.occurredAt ?? null,
+          payload.dueAt ?? null,
+          payload.assignedTo ?? '',
+          context.actor.username,
+        ],
+      );
+      await audit(tx, context, 'sales.activity_created', id, { activityNo: number });
+      return this.readActivity(tx, context, id);
+    });
+  };
+
+  private readActivity = async (
+    tx: Executor,
+    context: B1Context,
+    id: string,
+  ): Promise<Record<string, unknown>> => {
+    const rows = await tx.unsafe<Row>(
+      `select a.id, a.plant_id, a.activity_no, a.customer_id, c.name_ar as customer_name,
+              a.activity_type, a.subject, a.description, a.occurred_at::text as occurred_at,
+              a.due_at::text as due_at, a.assigned_to, a.status, a.outcome
+         from customer_activities a
+         join customers c on c.company_id = a.company_id and c.id = a.customer_id
+        where a.company_id = $1 and a.id = $2 and a.deleted_at is null`,
+      [context.tenant.companyId, id],
+    );
+    if (!rows[0]) throw new M1Error('activity_not_found', 404, 'activity does not exist');
+    return {
+      id: str(rows[0].id),
+      plant_id: str(rows[0].plant_id),
+      activity_no: str(rows[0].activity_no),
+      customer_id: str(rows[0].customer_id),
+      customer_name: str(rows[0].customer_name),
+      activity_type: str(rows[0].activity_type),
+      subject: str(rows[0].subject),
+      description: str(rows[0].description),
+      occurred_at: str(rows[0].occurred_at),
+      due_at: nullable(rows[0].due_at),
+      assigned_to: str(rows[0].assigned_to),
+      status: str(rows[0].status),
+      outcome: str(rows[0].outcome),
+    };
+  };
+
+  closeActivity = async (
+    context: B1Context,
+    id: string,
+    status: 'done' | 'cancelled',
+    outcome = '',
+  ): Promise<Record<string, unknown>> => {
+    this.level(context, CRM_LEVELS.activity, 'close a customer activity');
+    return this.db.withTenant(context.tenant, async (tx) => {
+      const rows = await tx.unsafe<Row>(
+        `select status from customer_activities where company_id = $1 and id = $2 and deleted_at is null`,
+        [context.tenant.companyId, id],
+      );
+      if (!rows[0]) throw new M1Error('activity_not_found', 404, 'activity does not exist');
+      if (!canActivityTransition(str(rows[0].status) as 'open', status)) {
+        throw new M1Error('invalid_transition', 409, `activity ${id} is ${str(rows[0].status)}`);
+      }
+      await tx.unsafe(
+        `update customer_activities set status = $3, outcome = $4, updated_by = $5
+          where company_id = $1 and id = $2`,
+        [context.tenant.companyId, id, status, outcome, context.actor.username],
+      );
+      await audit(tx, context, `sales.activity_${status}`, id, { outcome });
+      return this.readActivity(tx, context, id);
+    });
+  };
+
+  listFeedback = async (
+    context: B1Context,
+    filters: { customerId?: string; status?: string; plantId?: string } = {},
+  ): Promise<Array<Record<string, unknown>>> => {
+    this.level(context, CRM_LEVELS.read, 'read customer feedback');
+    const rows = await this.db.withTenant(context.tenant, (tx) =>
+      tx.unsafe<Row>(
+        `select f.id, f.plant_id, f.customer_id, c.name_ar as customer_name, f.source,
+                f.rating_1_to_5, f.category, f.comment, f.submitted_at::text as submitted_at,
+                f.handled_by, f.resolution, f.status
+           from customer_feedback f
+           join customers c on c.company_id = f.company_id and c.id = f.customer_id
+          where f.company_id = $1 and f.deleted_at is null
+            and ($2::text = '' or f.customer_id = $2)
+            and ($3::text = '' or f.status = $3)
+            and ($4::text = '' or f.plant_id = $4)
+          order by f.submitted_at desc`,
+        [
+          context.tenant.companyId,
+          filters.customerId ?? '',
+          filters.status ?? '',
+          filters.plantId ?? '',
+        ],
+      ),
+    );
+    return rows.map((row) => ({
+      id: str(row.id),
+      plant_id: str(row.plant_id),
+      customer_id: str(row.customer_id),
+      customer_name: str(row.customer_name),
+      source: str(row.source),
+      rating_1_to_5: num(row.rating_1_to_5),
+      category: str(row.category),
+      comment: str(row.comment),
+      submitted_at: str(row.submitted_at),
+      handled_by: str(row.handled_by),
+      resolution: str(row.resolution),
+      status: str(row.status),
+    }));
+  };
+
+  createFeedback = async (
+    context: B1Context,
+    payload: {
+      plantId: string;
+      customerId: string;
+      source: string;
+      rating: number;
+      category?: string;
+      comment?: string;
+    },
+  ): Promise<Record<string, unknown>> => {
+    this.level(context, CRM_LEVELS.activity, 'create customer feedback');
+    this.assertPlant(context, payload.plantId);
+    this.enforceCrm(checkFeedbackRating(payload.rating), context, '');
+    if (!payload.source.trim()) {
+      throw new M1Error('validation_error', 422, 'source is required', { field: 'source' });
+    }
+    const id = newId('FBK');
+    return this.db.withTenant(context.tenant, async (tx) => {
+      await tx.unsafe(
+        `insert into customer_feedback (id, company_id, plant_id, customer_id, source,
+            rating_1_to_5, category, comment, created_by, updated_by)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)`,
+        [
+          id,
+          context.tenant.companyId,
+          payload.plantId,
+          payload.customerId,
+          payload.source.trim(),
+          payload.rating,
+          payload.category ?? '',
+          payload.comment ?? '',
+          context.actor.username,
+        ],
+      );
+      await audit(tx, context, 'sales.feedback_created', id, { rating: payload.rating });
+      return this.readFeedback(tx, context, id);
+    });
+  };
+
+  private readFeedback = async (
+    tx: Executor,
+    context: B1Context,
+    id: string,
+  ): Promise<Record<string, unknown>> => {
+    const rows = await tx.unsafe<Row>(
+      `select f.id, f.plant_id, f.customer_id, c.name_ar as customer_name, f.source,
+              f.rating_1_to_5, f.category, f.comment, f.submitted_at::text as submitted_at,
+              f.handled_by, f.resolution, f.status
+         from customer_feedback f
+         join customers c on c.company_id = f.company_id and c.id = f.customer_id
+        where f.company_id = $1 and f.id = $2 and f.deleted_at is null`,
+      [context.tenant.companyId, id],
+    );
+    if (!rows[0]) throw new M1Error('feedback_not_found', 404, 'feedback does not exist');
+    return {
+      id: str(rows[0].id),
+      plant_id: str(rows[0].plant_id),
+      customer_id: str(rows[0].customer_id),
+      customer_name: str(rows[0].customer_name),
+      source: str(rows[0].source),
+      rating_1_to_5: num(rows[0].rating_1_to_5),
+      category: str(rows[0].category),
+      comment: str(rows[0].comment),
+      submitted_at: str(rows[0].submitted_at),
+      handled_by: str(rows[0].handled_by),
+      resolution: str(rows[0].resolution),
+      status: str(rows[0].status),
+    };
+  };
+
+  handleFeedback = async (
+    context: B1Context,
+    id: string,
+    payload: { resolution: string; status?: 'handled' | 'closed' },
+  ): Promise<Record<string, unknown>> => {
+    this.level(context, CRM_LEVELS.activity, 'handle customer feedback');
+    return this.db.withTenant(context.tenant, async (tx) => {
+      await tx.unsafe(
+        `update customer_feedback set resolution = $3, status = $4, handled_by = $5,
+            updated_by = $5 where company_id = $1 and id = $2 and deleted_at is null`,
+        [
+          context.tenant.companyId,
+          id,
+          payload.resolution,
+          payload.status ?? 'handled',
+          context.actor.username,
+        ],
+      );
+      await audit(tx, context, 'sales.feedback_handled', id, {});
+      return this.readFeedback(tx, context, id);
+    });
+  };
+
+  // --------------------------------------------------------------- M8 complaints
+
+  listComplaints = async (
+    context: B1Context,
+    filters: { customerId?: string; status?: string; plantId?: string } = {},
+  ): Promise<Array<Record<string, unknown>>> => {
+    this.level(context, CRM_LEVELS.read, 'read complaints');
+    const rows = await this.db.withTenant(context.tenant, (tx) =>
+      tx.unsafe<Row>(
+        `select k.id, k.plant_id, k.complaint_no, k.feedback_id, k.customer_id,
+                c.name_ar as customer_name, k.order_id, o.order_no, k.ticket_id,
+                k.quality_related, k.ncr_id, k.severity, k.description,
+                k.opened_at::text as opened_at, k.opened_by, k.investigation_notes,
+                k.root_cause, k.status, k.rejection_reason, k.closed_at::text as closed_at,
+                k.closed_by
+           from complaints k
+           join customers c on c.company_id = k.company_id and c.id = k.customer_id
+           left join orders o on o.company_id = k.company_id and o.id = k.order_id
+          where k.company_id = $1 and k.deleted_at is null
+            and ($2::text = '' or k.customer_id = $2)
+            and ($3::text = '' or k.status = $3)
+            and ($4::text = '' or k.plant_id = $4)
+          order by k.opened_at desc`,
+        [
+          context.tenant.companyId,
+          filters.customerId ?? '',
+          filters.status ?? '',
+          filters.plantId ?? '',
+        ],
+      ),
+    );
+    return rows.map((row) => ({
+      id: str(row.id),
+      plant_id: str(row.plant_id),
+      complaint_no: str(row.complaint_no),
+      feedback_id: nullable(row.feedback_id),
+      customer_id: str(row.customer_id),
+      customer_name: str(row.customer_name),
+      order_id: nullable(row.order_id),
+      order_no: nullable(row.order_no),
+      ticket_id: nullable(row.ticket_id),
+      quality_related: bool(row.quality_related),
+      ncr_id: nullable(row.ncr_id),
+      severity: str(row.severity),
+      description: str(row.description),
+      opened_at: str(row.opened_at),
+      opened_by: str(row.opened_by),
+      investigation_notes: str(row.investigation_notes),
+      root_cause: str(row.root_cause),
+      status: str(row.status) as ComplaintStatus,
+      rejection_reason: nullable(row.rejection_reason),
+      closed_at: nullable(row.closed_at),
+      closed_by: nullable(row.closed_by),
+    }));
+  };
+
+  createComplaint = async (
+    context: B1Context,
+    payload: {
+      plantId: string;
+      complaintNo?: string;
+      feedbackId?: string | null;
+      customerId: string;
+      orderId?: string | null;
+      ticketId?: string | null;
+      qualityRelated?: boolean;
+      ncrId?: string | null;
+      severity?: string;
+      description: string;
+    },
+  ): Promise<Record<string, unknown>> => {
+    this.level(context, CRM_LEVELS.activity, 'open a complaint');
+    this.assertPlant(context, payload.plantId);
+    if (!payload.description.trim()) {
+      throw new M1Error('validation_error', 422, 'description is required', { field: 'description' });
+    }
+    const ncr = checkComplaintNcr(payload.qualityRelated === true, payload.ncrId ?? null);
+    this.enforceCrm(ncr, context, '');
+    const id = newId('CMP');
+    return this.db.withTenant(context.tenant, async (tx) => {
+      if (payload.ncrId) {
+        const ncrRows = await tx.unsafe<Row>(
+          `select id from ncr where company_id = $1 and id = $2 and plant_id = $3`,
+          [context.tenant.companyId, payload.ncrId, payload.plantId],
+        );
+        if (!ncrRows[0]) throw new M1Error('ncr_not_found', 404, 'NCR does not exist');
+      }
+      if (payload.feedbackId) {
+        const fb = await tx.unsafe<Row>(
+          `select customer_id from customer_feedback
+            where company_id = $1 and id = $2 and deleted_at is null`,
+          [context.tenant.companyId, payload.feedbackId],
+        );
+        if (!fb[0]) throw new M1Error('feedback_not_found', 404, 'feedback does not exist');
+        if (str(fb[0].customer_id) !== payload.customerId) {
+          throw new M1Error('customer_mismatch', 422, 'feedback belongs to another customer');
+        }
+      }
+      const number = (payload.complaintNo ?? '').trim() || documentNo('CMP');
+      const duplicate =
+        (
+          await tx.unsafe<Row>(
+            `select 1 from complaints where company_id = $1 and lower(complaint_no) = lower($2)
+               and deleted_at is null`,
+            [context.tenant.companyId, number],
+          )
+        ).length > 0;
+      if (duplicate) {
+        throw new M1Error('duplicate_complaint', 422, 'complaint number must be unique');
+      }
+      await tx.unsafe(
+        `insert into complaints (id, company_id, plant_id, complaint_no, feedback_id, customer_id,
+            order_id, ticket_id, quality_related, ncr_id, severity, description, opened_by,
+            created_by, updated_by)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13,$13)`,
+        [
+          id,
+          context.tenant.companyId,
+          payload.plantId,
+          number,
+          payload.feedbackId ?? null,
+          payload.customerId,
+          payload.orderId ?? null,
+          payload.ticketId ?? null,
+          payload.qualityRelated === true,
+          payload.ncrId ?? null,
+          payload.severity ?? 'medium',
+          payload.description.trim(),
+          context.actor.username,
+        ],
+      );
+      await audit(tx, context, 'sales.complaint_opened', id, { complaintNo: number });
+      return this.readComplaint(tx, context, id);
+    });
+  };
+
+  private readComplaint = async (
+    tx: Executor,
+    context: B1Context,
+    id: string,
+  ): Promise<Record<string, unknown>> => {
+    const rows = await tx.unsafe<Row>(
+      `select k.id, k.plant_id, k.complaint_no, k.feedback_id, k.customer_id,
+              c.name_ar as customer_name, k.order_id, o.order_no, k.ticket_id,
+              k.quality_related, k.ncr_id, k.severity, k.description,
+              k.opened_at::text as opened_at, k.opened_by, k.investigation_notes,
+              k.root_cause, k.status, k.rejection_reason, k.closed_at::text as closed_at,
+              k.closed_by
+         from complaints k
+         join customers c on c.company_id = k.company_id and c.id = k.customer_id
+         left join orders o on o.company_id = k.company_id and o.id = k.order_id
+        where k.company_id = $1 and k.id = $2 and k.deleted_at is null`,
+      [context.tenant.companyId, id],
+    );
+    if (!rows[0]) throw new M1Error('complaint_not_found', 404, 'complaint does not exist');
+    return {
+      id: str(rows[0].id),
+      plant_id: str(rows[0].plant_id),
+      complaint_no: str(rows[0].complaint_no),
+      feedback_id: nullable(rows[0].feedback_id),
+      customer_id: str(rows[0].customer_id),
+      customer_name: str(rows[0].customer_name),
+      order_id: nullable(rows[0].order_id),
+      order_no: nullable(rows[0].order_no),
+      ticket_id: nullable(rows[0].ticket_id),
+      quality_related: bool(rows[0].quality_related),
+      ncr_id: nullable(rows[0].ncr_id),
+      severity: str(rows[0].severity),
+      description: str(rows[0].description),
+      opened_at: str(rows[0].opened_at),
+      opened_by: str(rows[0].opened_by),
+      investigation_notes: str(rows[0].investigation_notes),
+      root_cause: str(rows[0].root_cause),
+      status: str(rows[0].status) as ComplaintStatus,
+      rejection_reason: nullable(rows[0].rejection_reason),
+      closed_at: nullable(rows[0].closed_at),
+      closed_by: nullable(rows[0].closed_by),
+    };
+  };
+
+  transitionComplaint = async (
+    context: B1Context,
+    id: string,
+    to: ComplaintStatus,
+    payload: { reason?: string; investigationNotes?: string; rootCause?: string } = {},
+  ): Promise<Record<string, unknown>> => {
+    const required = to === 'resolved' || to === 'closed' || to === 'rejected' ? CRM_LEVELS.approve : CRM_LEVELS.pricing;
+    this.level(context, required, `${to} a complaint`);
+    if (to === 'rejected' && (payload.reason ?? '').trim().length < MIN_OVERRIDE_REASON) {
+      throw new M1Error('validation_error', 422, 'rejection reason is required', { field: 'reason' });
+    }
+    return this.db.withTenant(context.tenant, async (tx) => {
+      const rows = await tx.unsafe<Row>(
+        `select status from complaints where company_id = $1 and id = $2 and deleted_at is null`,
+        [context.tenant.companyId, id],
+      );
+      if (!rows[0]) throw new M1Error('complaint_not_found', 404, 'complaint does not exist');
+      const from = str(rows[0].status) as ComplaintStatus;
+      if (!canComplaintTransition(from, to)) {
+        throw new M1Error('invalid_transition', 409, `complaint ${id} is ${from}`, { from, to });
+      }
+      await tx.unsafe(
+        `update complaints
+            set status = $3,
+                investigation_notes = case when $4::text = '' then investigation_notes else $4 end,
+                root_cause = case when $5::text = '' then root_cause else $5 end,
+                rejection_reason = case when $3 = 'rejected' then $6 else rejection_reason end,
+                closed_at = case when $3 in ('closed', 'rejected') then now() else closed_at end,
+                closed_by = case when $3 in ('closed', 'rejected') then $7 else closed_by end,
+                updated_by = $7
+          where company_id = $1 and id = $2`,
+        [
+          context.tenant.companyId,
+          id,
+          to,
+          payload.investigationNotes ?? '',
+          payload.rootCause ?? '',
+          payload.reason ?? '',
+          context.actor.username,
+        ],
+      );
+      await audit(tx, context, `sales.complaint_${to}`, id, { reason: payload.reason ?? '' });
+      return this.readComplaint(tx, context, id);
+    });
+  };
 }
 
 const audit = async (

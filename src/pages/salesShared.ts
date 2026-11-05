@@ -226,6 +226,19 @@ export const apiMessage = (caught: unknown): string => {
     if (caught.code === 'ticket_references') return 'sales.err.ticketReferences';
     if (caught.code === 'batch_coverage') return 'sales.err.batchCoverage';
     if (caught.code === 'ticket_over_order') return 'sales.err.ticketOverOrder';
+    if (caught.code === 'duplicate_price_list') return 'sales.err.duplicatePriceList';
+    if (caught.code === 'price_list_overlap') return 'sales.err.priceListOverlap';
+    if (caught.code === 'price_list_locked') return 'sales.err.priceListLocked';
+    if (caught.code === 'price_list_not_found') return 'sales.err.priceListNotFound';
+    if (caught.code === 'season_window') return 'sales.err.seasonWindow';
+    if (caught.code === 'feedback_rating') return 'sales.err.feedbackRating';
+    if (caught.code === 'complaint_ncr') return 'sales.err.complaintNcr';
+    if (caught.code === 'ncr_not_found') return 'sales.err.ncrNotFound';
+    if (caught.code === 'duplicate_commitment') return 'sales.err.duplicateCommitment';
+    if (caught.code === 'commitment_not_found') return 'sales.err.commitmentNotFound';
+    if (caught.code === 'duplicate_activity') return 'sales.err.duplicateActivity';
+    if (caught.code === 'duplicate_complaint') return 'sales.err.duplicateComplaint';
+    if (caught.code === 'price_missing' || caught.code === 'price_ambiguous') return 'sales.err.approvalRequired';
   }
   return 'errors.network';
 };

@@ -276,6 +276,10 @@ export const seedDemo = async (db: Db): Promise<SeedResult> => {
 
     // Same catalogue list as migration 0012, through its idempotent SQL function.
     await tx.unsafe(`select seed_rule_catalogue()`);
+    // M7/M8 sales catalogues are seeded after the demo companies exist: the migration-time
+    // call has no company to seed yet, so the seed step owns the per-company rows.
+    await tx.unsafe(`select seed_sales_rule_catalogue()`);
+    await tx.unsafe(`select seed_m8_sales_rules()`);
 
     await tx.unsafe(
       `insert into plants (id, company_id, name_ar, name_en, city) values

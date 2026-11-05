@@ -408,6 +408,309 @@ export const handleSales = async (request: Request, deps: B1Deps): Promise<Respo
       return json({ ticket });
     }
 
+    // ---------------------------------------------------------- M8 pricing and CRM
+
+    if (path === '/api/sales/price-lists' && method === 'GET') {
+      const context = await guarded(1);
+      if (context instanceof Response) return context;
+      const priceLists = await sales.listPriceLists(context, {
+        plantId: url.searchParams.get('plantId') ?? '',
+        status: url.searchParams.get('status') ?? '',
+        q: url.searchParams.get('q') ?? '',
+      });
+      return json({ priceLists, total: priceLists.length });
+    }
+
+    if (path === '/api/sales/price-lists' && method === 'POST') {
+      const context = await guarded(3);
+      if (context instanceof Response) return context;
+      const payload = await body(request);
+      const priceList = await sales.createPriceList(context, {
+        plantId: str(payload.plantId),
+        listCode: str(payload.listCode),
+        name: str(payload.name),
+        currency: str(payload.currency) || 'EGP',
+        validFrom: str(payload.validFrom),
+        validUntil: str(payload.validUntil) || null,
+        notes: str(payload.notes),
+      });
+      const items = lines(payload.items);
+      for (const item of items) {
+        await sales.addPriceListItem(context, str(priceList.id), {
+          materialId: str(item.materialId),
+          unitPrice: num(item.unitPrice),
+          minQuantity: numOrNull(item.minQuantity) ?? 0,
+          discountPct: numOrNull(item.discountPct) ?? 0,
+          validFrom: str(item.validFrom) || null,
+          validUntil: str(item.validUntil) || null,
+        });
+      }
+      return json({ priceList: await sales.getPriceList(context, str(priceList.id)) }, 201);
+    }
+
+    const priceListMatch = /^\/api\/sales\/price-lists\/([^/]+)$/.exec(path);
+    if (priceListMatch && method === 'GET') {
+      const context = await guarded(1);
+      if (context instanceof Response) return context;
+      return json({ priceList: await sales.getPriceList(context, decodeURIComponent(priceListMatch[1] ?? '')) });
+    }
+
+    const priceListItem = /^\/api\/sales\/price-lists\/([^/]+)\/items$/.exec(path);
+    if (priceListItem && method === 'POST') {
+      const context = await guarded(3);
+      if (context instanceof Response) return context;
+      const payload = await body(request);
+      const priceList = await sales.addPriceListItem(
+        context,
+        decodeURIComponent(priceListItem[1] ?? ''),
+        {
+          materialId: str(payload.materialId),
+          unitPrice: num(payload.unitPrice),
+          minQuantity: numOrNull(payload.minQuantity) ?? 0,
+          discountPct: numOrNull(payload.discountPct) ?? 0,
+          validFrom: str(payload.validFrom) || null,
+          validUntil: str(payload.validUntil) || null,
+        },
+      );
+      return json({ priceList }, 201);
+    }
+
+    const priceListAction = /^\/api\/sales\/price-lists\/([^/]+)\/(activate|supersede|expire)$/.exec(path);
+    if (priceListAction && method === 'POST') {
+      const action = priceListAction[2]!;
+      const context = await guarded(action === 'supersede' ? 5 : 4);
+      if (context instanceof Response) return context;
+      const id = decodeURIComponent(priceListAction[1] ?? '');
+      const payload = await body(request);
+      const priceList =
+        action === 'activate'
+          ? await sales.activatePriceList(context, id)
+          : action === 'supersede'
+            ? await sales.supersedePriceList(context, id, str(payload.reason))
+            : await sales.expirePriceList(context, id);
+      return json({ priceList });
+    }
+
+    if (path === '/api/sales/commitments' && method === 'GET') {
+      const context = await guarded(1);
+      if (context instanceof Response) return context;
+      const commitments = await sales.listVolumeCommitments(context, {
+        plantId: url.searchParams.get('plantId') ?? '',
+        status: url.searchParams.get('status') ?? '',
+        customerId: url.searchParams.get('customerId') ?? '',
+      });
+      return json({ commitments, total: commitments.length });
+    }
+
+    if (path === '/api/sales/commitments' && method === 'POST') {
+      const context = await guarded(3);
+      if (context instanceof Response) return context;
+      const payload = await body(request);
+      const commitment = await sales.createVolumeCommitment(context, {
+        plantId: str(payload.plantId),
+        commitmentNo: str(payload.commitmentNo),
+        customerId: str(payload.customerId),
+        contractId: str(payload.contractId) || null,
+        materialId: str(payload.materialId),
+        committedQuantityM3: num(payload.committedQuantityM3),
+        periodStart: str(payload.periodStart),
+        periodEnd: str(payload.periodEnd),
+        specialPrice: num(payload.specialPrice),
+        notes: str(payload.notes),
+      });
+      return json({ commitment }, 201);
+    }
+
+    const commitmentAction = /^\/api\/sales\/commitments\/([^/]+)\/(activate|breach|cancel|expire)$/.exec(path);
+    if (commitmentAction && method === 'POST') {
+      const action = commitmentAction[2]!;
+      const context = await guarded(action === 'breach' ? 5 : action === 'expire' ? 4 : 3);
+      if (context instanceof Response) return context;
+      const id = decodeURIComponent(commitmentAction[1] ?? '');
+      const payload = await body(request);
+      const commitment =
+        action === 'activate'
+          ? await sales.activateCommitment(context, id)
+          : action === 'breach'
+            ? await sales.breachCommitment(context, id, str(payload.reason))
+            : action === 'expire'
+              ? await sales.expireCommitment(context, id)
+              : await sales.cancelCommitment(context, id, str(payload.reason));
+      return json({ commitment });
+    }
+
+    if (path === '/api/sales/seasonal-prices' && method === 'GET') {
+      const context = await guarded(1);
+      if (context instanceof Response) return context;
+      return json({
+        seasonalPrices: await sales.listSeasonalPrices(context, {
+          plantId: url.searchParams.get('plantId') ?? '',
+          materialId: url.searchParams.get('materialId') ?? '',
+          customerId: url.searchParams.get('customerId') ?? '',
+        }),
+      });
+    }
+
+    if (path === '/api/sales/seasonal-prices' && method === 'POST') {
+      const context = await guarded(3);
+      if (context instanceof Response) return context;
+      const payload = await body(request);
+      const seasonalPrice = await sales.createSeasonalPrice(context, {
+        plantId: str(payload.plantId),
+        customerId: str(payload.customerId) || null,
+        materialId: str(payload.materialId),
+        seasonStart: str(payload.seasonStart),
+        seasonEnd: str(payload.seasonEnd),
+        unitPrice: num(payload.unitPrice),
+        notes: str(payload.notes),
+      });
+      return json({ seasonalPrice }, 201);
+    }
+
+    if (path === '/api/sales/activities' && method === 'GET') {
+      const context = await guarded(1);
+      if (context instanceof Response) return context;
+      return json({
+        activities: await sales.listActivities(context, {
+          customerId: url.searchParams.get('customerId') ?? '',
+          activityType: url.searchParams.get('activityType') ?? '',
+          status: url.searchParams.get('status') ?? '',
+          plantId: url.searchParams.get('plantId') ?? '',
+        }),
+      });
+    }
+
+    if (path === '/api/sales/activities' && method === 'POST') {
+      const context = await guarded(2);
+      if (context instanceof Response) return context;
+      const payload = await body(request);
+      const activity = await sales.createActivity(context, {
+        plantId: str(payload.plantId),
+        activityNo: str(payload.activityNo),
+        customerId: str(payload.customerId),
+        activityType: str(payload.activityType),
+        subject: str(payload.subject),
+        description: str(payload.description),
+        occurredAt: str(payload.occurredAt) || undefined,
+        dueAt: str(payload.dueAt) || null,
+        assignedTo: str(payload.assignedTo),
+      });
+      return json({ activity }, 201);
+    }
+
+    const activityAction = /^\/api\/sales\/activities\/([^/]+)\/(done|cancel)$/.exec(path);
+    if (activityAction && method === 'POST') {
+      const context = await guarded(2);
+      if (context instanceof Response) return context;
+      const payload = await body(request);
+      const activity = await sales.closeActivity(
+        context,
+        decodeURIComponent(activityAction[1] ?? ''),
+        activityAction[2] === 'done' ? 'done' : 'cancelled',
+        str(payload.outcome),
+      );
+      return json({ activity });
+    }
+
+    if (path === '/api/sales/feedback' && method === 'GET') {
+      const context = await guarded(1);
+      if (context instanceof Response) return context;
+      return json({
+        feedback: await sales.listFeedback(context, {
+          customerId: url.searchParams.get('customerId') ?? '',
+          status: url.searchParams.get('status') ?? '',
+          plantId: url.searchParams.get('plantId') ?? '',
+        }),
+      });
+    }
+
+    if (path === '/api/sales/feedback' && method === 'POST') {
+      const context = await guarded(2);
+      if (context instanceof Response) return context;
+      const payload = await body(request);
+      const feedback = await sales.createFeedback(context, {
+        plantId: str(payload.plantId),
+        customerId: str(payload.customerId),
+        source: str(payload.source),
+        rating: num(payload.rating),
+        category: str(payload.category),
+        comment: str(payload.comment),
+      });
+      return json({ feedback }, 201);
+    }
+
+    const feedbackAction = /^\/api\/sales\/feedback\/([^/]+)\/handle$/.exec(path);
+    if (feedbackAction && method === 'POST') {
+      const context = await guarded(2);
+      if (context instanceof Response) return context;
+      const payload = await body(request);
+      const feedback = await sales.handleFeedback(
+        context,
+        decodeURIComponent(feedbackAction[1] ?? ''),
+        {
+          resolution: str(payload.resolution),
+          status: payload.status === 'closed' ? 'closed' : 'handled',
+        },
+      );
+      return json({ feedback });
+    }
+
+    if (path === '/api/sales/complaints' && method === 'GET') {
+      const context = await guarded(1);
+      if (context instanceof Response) return context;
+      return json({
+        complaints: await sales.listComplaints(context, {
+          customerId: url.searchParams.get('customerId') ?? '',
+          status: url.searchParams.get('status') ?? '',
+          plantId: url.searchParams.get('plantId') ?? '',
+        }),
+      });
+    }
+
+    if (path === '/api/sales/complaints' && method === 'POST') {
+      const context = await guarded(2);
+      if (context instanceof Response) return context;
+      const payload = await body(request);
+      const complaint = await sales.createComplaint(context, {
+        plantId: str(payload.plantId),
+        complaintNo: str(payload.complaintNo),
+        feedbackId: str(payload.feedbackId) || null,
+        customerId: str(payload.customerId),
+        orderId: str(payload.orderId) || null,
+        ticketId: str(payload.ticketId) || null,
+        qualityRelated: payload.qualityRelated === true,
+        ncrId: str(payload.ncrId) || null,
+        severity: str(payload.severity) || 'medium',
+        description: str(payload.description),
+      });
+      return json({ complaint }, 201);
+    }
+
+    const complaintAction = /^\/api\/sales\/complaints\/([^/]+)\/(investigate|resolve|close|reject)$/.exec(path);
+    if (complaintAction && method === 'POST') {
+      const action = complaintAction[2]!;
+      const context = await guarded(action === 'investigate' ? 3 : 4);
+      if (context instanceof Response) return context;
+      const payload = await body(request);
+      const complaint = await sales.transitionComplaint(
+        context,
+        decodeURIComponent(complaintAction[1] ?? ''),
+        action === 'investigate'
+          ? 'investigating'
+          : action === 'resolve'
+            ? 'resolved'
+            : action === 'close'
+              ? 'closed'
+              : 'rejected',
+        {
+          reason: str(payload.reason),
+          investigationNotes: str(payload.investigationNotes),
+          rootCause: str(payload.rootCause),
+        },
+      );
+      return json({ complaint });
+    }
+
     return fail(404, 'not_found');
   } catch (error) {
     if (error instanceof M1Error) {

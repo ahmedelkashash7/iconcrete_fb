@@ -238,3 +238,41 @@ statement with the requested id in `meta.extra`. Covered by the second-tenant te
   dispatch assignments and the batch selector from the batching API. There is no price-list or
   discount-approval screen, and the R1 rule-value editor remains an API surface, so a level-5 user
   configures `sales.*` values over the API for now.
+
+## Update — 2026-11-05 (M8 sales pricing, commitments, CRM and complaints)
+
+- **Pricing has carriers now.** `price_lists`, `price_list_items`, `seasonal_prices`,
+  `volume_commitments`, `customer_activities`, `customer_feedback`, `complaints` and
+  `price_resolutions` exist with tenant and plant RLS. The M7 debt (price lists referenced by D7
+  without a carrier) is closed: an order now resolves contract → commitment → seasonal → list.
+- **Contract price source.** There is no separate `contract_prices` table in this execution scope.
+  A signed/active contract ranks first because its pinned `quotation_version_id` snapshot already
+  carries the approved line prices. `price_resolutions.source_id` therefore stores the contract
+  id, not a contract-price row. If contract prices ever need to diverge from the quotation
+  snapshot, that is a new table and a new migration.
+- **Resolution is evidence.** The resolved net price is copied to the order item and to
+  `price_resolutions` at order time. Later catalogue edits do not touch an existing order; the
+  test updates a list item to 999 and still reads 175 on the old order. Ambiguity and a missing
+  source are `approval_required`; an override is recorded as
+  `precedence_ambiguity_override`, not silently mixed.
+- **M8 rules are seeded at seed time.** Migration 0018/0019 functions insert rule rows per company;
+  on a fresh database the companies do not exist during migration, so `seedDemo` now calls
+  `seed_sales_rule_catalogue()` and `seed_m8_sales_rules()` after creating them. This also fixed
+  the previously empty M7 discount rule rows on freshly seeded databases; no values were invented
+  for the discount rules.
+- **Commitment bands are R1 data.** 95% (warning) and 100% (approval_required) are named in the
+  execution specification and seeded with that source note; they remain editable. Any other
+  threshold — including over-delivery tolerance and discount limits — still has no value.
+- **Lifecycles.** Price lists can be activated, expired or superseded (supersede is level 5);
+  commitments can be activated, expired, cancelled or breached (breach level 5); complaints follow
+  open → investigating → resolved → closed or rejected; activities close done/cancelled. There is
+  no scheduler that expires lists or commitments by date; expiry is an explicit service/API move,
+  and resolution ignores rows outside their windows or no longer active.
+- **CRM scope.** `customer_feedback.status` is open/handled/closed; complaints are separate and
+  carry an optional feedback link, order/ticket link and the required NCR link for quality
+  complaints. The NCR remains the quality record; complaints do not duplicate it. Leads,
+  opportunities and stage history from the plan's sales chapter remain **not implemented**.
+- Still open: the four M8 screens were not rendered in a browser (G6). The complaint screen takes
+  the NCR id as text because the quality API exposes no NCR picker yet. Price-list items can only
+  be added to a draft list, and there is no price-list import or seasonal-price screen; seasonal
+  prices are created over the API.
