@@ -276,3 +276,38 @@ statement with the requested id in `meta.extra`. Covered by the second-tenant te
   the NCR id as text because the quality API exposes no NCR picker yet. Price-list items can only
   be added to a draft list, and there is no price-list import or seasonal-price screen; seasonal
   prices are created over the API.
+## Update — 2026-11-05 (login second step and M9 procurement)
+
+- **2FA bypassed until email configured.** No TOTP or email one-time code was ever implemented, so
+  the reported "second step" was the opt-in local captcha that appeared after repeated failed
+  passwords. The gate and its `captchaRequired` response are now controlled by
+  `ICONCRETE_2FA_ENABLED` (default `false`). Login is company name + username + password, all three
+  required, and succeeds directly while the flag is off. Password hashing, failure counting, the
+  lockout, session revocation and audit records are unchanged. Set
+  `ICONCRETE_2FA_ENABLED=true` only after a real OTP/email provider exists; the current captcha is
+  not a second authentication factor.
+- **M9 tables.** Migration 0020 adds `supplier_evaluations`, `supplier_documents`,
+  `supplier_contracts`, `purchase_invoices`, `purchase_invoice_items`, `payments_vouchers` and
+  `ap_aging_snapshot`, each with company and plant scope, tenant RLS, the restrictive plant policy,
+  soft delete and UTC timestamps. `purchase_invoice_items` inherits its company/plant from the
+  invoice and carries them for the plant policy.
+- **Three-way match is evidence, not auto-approval.** `purchase_invoices.match_details` stores the
+  PO, confirmed goods-receipt and invoice comparison by material. A missing PO or receipt row, or a
+  quantity/price difference outside a configured tolerance, is `approval_required`. Both D6
+  tolerances are seeded as `null`: an unconfigured tolerance is `approval_required`, never a silent
+  match. A level-4 approver records a written override reason.
+- **Supplier standing.** All four document types (registration, insurance, licence, quality
+  certificate) are treated as mandatory. An expired or rejected mandatory document at PO
+  confirmation is `approval_required` and can only proceed with a level-4 written reason. An
+  evaluation with any score below the seeded grade-D threshold (60) derives grade D, and publishing
+  it suspends the supplier; a suspended supplier gets `mandatory_failure` on a new PO. Reactivation
+  is level 5 and audited.
+- **Payments and aging.** A supplier voucher requires an approved invoice and may not exceed its
+  outstanding balance. Cheques record number and due date; paying before the due date is an info
+  warning, and a bounce opens an exception with the required reason. AP aging buckets 0–30, 31–60,
+  61–90 and 90+ from invoice due dates and stores point-in-time snapshots.
+- **Still open.** No scheduler expires documents or contracts automatically; expiry is explicitly
+  applied by the service/API. The five M9 screens were typechecked, routed and built but not
+  rendered in a browser (G6). The supplier evaluation form previews the grade but does not itself
+  suspend anyone until published. Legacy M1 purchase orders are not routed through the M9 standing
+  check; only the inventory PO path is.

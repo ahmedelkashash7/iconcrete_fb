@@ -42,6 +42,7 @@ import { handleQuality } from './api/quality';
 import { handleFleet } from './api/fleet';
 import { handleInventory } from './api/inventory';
 import { handleSales } from './api/sales';
+import { handleProcurement } from './api/procurement';
 import { handleCsv } from './api/csv';
 import type { Customer, DemoDataset, InventoryItem, Lang, Material, RoleLevel } from '../src/types';
 
@@ -287,7 +288,10 @@ export const createApp = async (
           return fail(400, 'missing_credentials');
         }
 
-        const requiresCaptcha = (failedAttempts.get(username.toLowerCase()) ?? 0) >= 3;
+        // Second step is opt-in. It stays disabled until SMTP/OTP delivery exists; the
+        // password, lockout and audit controls below remain active either way.
+        const requiresCaptcha =
+          env.twoFactorEnabled === true && (failedAttempts.get(username.toLowerCase()) ?? 0) >= 3;
         if (requiresCaptcha) {
           const challengeId = captcha?.challengeId ?? '';
           const challenge = captchas.get(challengeId);
@@ -321,7 +325,9 @@ export const createApp = async (
               error: result.code,
               failedAttempts: result.failedAttempts,
               lockedUntil: result.lockedUntil ?? null,
-              captchaRequired: (failedAttempts.get(username.toLowerCase()) ?? 0) >= 3,
+              captchaRequired:
+                env.twoFactorEnabled === true &&
+                (failedAttempts.get(username.toLowerCase()) ?? 0) >= 3,
             },
             status,
           );
@@ -1173,6 +1179,18 @@ export const createApp = async (
       if (path === '/api/sales' || path.startsWith('/api/sales/')) {
         return (
           (await handleSales(request, {
+            db,
+            auth: async (req, minLevel) => {
+              const session = await sessionFor(req, minLevel);
+              return session.ok ? { ok: true, user: session.user } : session;
+            },
+          })) ?? fail(404, 'not_found')
+        );
+      }
+
+      if (path === '/api/procurement' || path.startsWith('/api/procurement/')) {
+        return (
+          (await handleProcurement(request, {
             db,
             auth: async (req, minLevel) => {
               const session = await sessionFor(req, minLevel);

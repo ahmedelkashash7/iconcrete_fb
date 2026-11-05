@@ -9,6 +9,8 @@ const env: AppEnv = {
   maxFailedLogins: 5,
   lockoutMinutes: 15,
   maxUploadBytes: 2 * 1024 * 1024,
+  // This file pins the opt-in second step; application defaults keep it off.
+  twoFactorEnabled: true,
 };
 
 interface LoginBody {

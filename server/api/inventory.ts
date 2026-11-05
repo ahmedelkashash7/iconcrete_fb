@@ -266,8 +266,10 @@ export const handleInventory = async (request: Request, deps: B1Deps): Promise<R
       const context = await guarded(action === 'confirm' ? 4 : 5);
       if (context instanceof Response) return context;
       const id = decodeURIComponent(poActionMatch[1] ?? '');
-      if (action === 'confirm') return json({ purchaseOrder: await inventory.confirmPurchaseOrder(context, id) });
       const payload = await body(request);
+      if (action === 'confirm') {
+        return json({ purchaseOrder: await inventory.confirmPurchaseOrder(context, id, str(payload.reason)) });
+      }
       return json({ purchaseOrder: await inventory.cancelPurchaseOrder(context, id, str(payload.reason)) });
     }
 

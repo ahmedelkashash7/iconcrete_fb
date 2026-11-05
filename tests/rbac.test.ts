@@ -26,6 +26,7 @@ describe('RBAC matrix', () => {
 // gate at 3, 4 and 5.
 // M6/M7 add the inventory, procurement and sales reads at level 1; writes gate at 3, 4 and 5.
     expect(visiblePages(1).sort()).toEqual([
+      'apAging',
       'batches',
       'commitments',
       'complaints',
@@ -40,13 +41,16 @@ describe('RBAC matrix', () => {
       'inventory',
       'mixDesigns',
       'orders',
+      'paymentVouchers',
       'priceLists',
       'projects',
+      'purchaseInvoices',
       'purchaseOrders',
       'purchaseRequests',
       'quality',
       'quotations',
       'reports',
+      'suppliers',
     ]);
     expect(canAccessPage(1, 'dashboard')).toBe(true);
     expect(canAccessPage(1, 'customers')).toBe(true);

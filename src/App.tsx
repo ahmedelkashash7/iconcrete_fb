@@ -33,6 +33,10 @@ const InventoryListPage = lazy(() => import('./pages/InventoryListPage').then((m
 const PurchaseRequestPage = lazy(() => import('./pages/PurchaseRequestPage').then((m) => ({ default: m.PurchaseRequestPage })));
 const PurchaseOrderPage = lazy(() => import('./pages/PurchaseOrderPage').then((m) => ({ default: m.PurchaseOrderPage })));
 const GoodsReceiptPage = lazy(() => import('./pages/GoodsReceiptPage').then((m) => ({ default: m.GoodsReceiptPage })));
+const SuppliersPage = lazy(() => import('./pages/SuppliersPage').then((m) => ({ default: m.SuppliersPage })));
+const PurchaseInvoicesPage = lazy(() => import('./pages/PurchaseInvoicesPage').then((m) => ({ default: m.PurchaseInvoicesPage })));
+const PaymentsVoucherPage = lazy(() => import('./pages/PaymentsVoucherPage').then((m) => ({ default: m.PaymentsVoucherPage })));
+const ApAgingReportPage = lazy(() => import('./pages/ApAgingReportPage').then((m) => ({ default: m.ApAgingReportPage })));
 const RuleCataloguePage = lazy(() => import('./pages/RuleCataloguePage').then((m) => ({ default: m.RuleCataloguePage })));
 const ExcelCenterPage = lazy(() => import('./pages/ExcelCenterPage').then((m) => ({ default: m.ExcelCenterPage })));
 const DesignSystemPage = lazy(() => import('./pages/DesignSystemPage').then((m) => ({ default: m.DesignSystemPage })));
@@ -140,6 +144,14 @@ export const App = () => {
             <PurchaseOrderPage />
           ) : page === 'goodsReceipts' ? (
             <GoodsReceiptPage />
+          ) : page === 'suppliers' ? (
+            <SuppliersPage />
+          ) : page === 'purchaseInvoices' ? (
+            <PurchaseInvoicesPage />
+          ) : page === 'paymentVouchers' ? (
+            <PaymentsVoucherPage />
+          ) : page === 'apAging' ? (
+            <ApAgingReportPage />
           ) : page === 'rules' ? (
             <RuleCataloguePage />
           ) : page === 'invoices' ? (

@@ -36,7 +36,7 @@ interface Rule {
   version: number;
 }
 
-const MODULES = ['mix_design', 'batching', 'quality', 'fleet'];
+const MODULES = ['mix_design', 'batching', 'quality', 'fleet', 'inventory', 'sales', 'procurement'];
 const TONE: Record<string, BadgeTone> = {
   warning: 'warning',
   mandatory_failure: 'danger',

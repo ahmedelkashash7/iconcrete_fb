@@ -452,3 +452,49 @@ level 4, investigation level 3.
 
 Not executed here: browser/E2E, screen reader, deployment, push. The four new screens were
 typechecked, routed, labelled and built, but not rendered.
+
+---
+
+# Verification record — login second step and M9 procurement (2026-11-05)
+
+| Step | Command | Result |
+|---|---|---|
+| Typecheck | `bun run typecheck` | 0 errors |
+| Migration on a fresh database | `bun run db:migrate` | `applied: 0001_m1_organization.sql … 0020_m9_procurement.sql`; `skipped: none` |
+| Seed | `bun run db:seed` | succeeds; both companies receive the three M9 procurement rules |
+| Login | `POST /api/auth/login` with company, username and password | 200 with a session token; no second step while `ICONCRETE_2FA_ENABLED` is unset/false |
+| New M9 tests | `bun test tests/m9/procurement.test.ts` | **13 pass** — 6 pure rules + 7 database scenarios |
+| Unit/API/DB tests | `bun test` | **380 pass, 0 fail**, 40 files |
+| Data dictionary | `bun run schema:docs` | regenerated, 3,457 lines, 107 tables |
+| Build | `bun run build` | success |
+
+Migration `0020_m9_procurement.sql` adds `supplier_evaluations`, `supplier_documents`,
+`supplier_contracts`, `purchase_invoices`, `purchase_invoice_items`, `payments_vouchers` and
+`ap_aging_snapshot`. All carry tenant RLS, the restrictive plant policy, soft delete and UTC
+timestamps; `purchase_invoice_items` is scoped through the invoice's company and plant.
+
+The three-way match compares order quantity and price, confirmed goods-receipt quantity and invoice
+lines by material. A missing PO, a missing receipt or a difference beyond a configured tolerance is
+`approval_required`; the D6 quantity and price tolerances are seeded `null` and every unconfigured
+value stays `approval_required`. Invoice arithmetic and duplicate supplier invoice numbers are
+mandatory failures. A level-4 approval may override a tolerance with a written reason, recorded as
+`tolerance_override` in `match_details`.
+
+Supplier evaluation validates all four scores in 0–100 and derives the grade deterministically
+(average A ≥ 90, B ≥ 80, C ≥ 70, otherwise D), using the seeded `procurement.supplier_grade_d_threshold` = 60
+with the M9 execution specification as its source note. Publishing a grade-D evaluation suspends the
+supplier and records `supplier_auto_suspended`. All four documents are mandatory; an expired or
+rejected one blocks PO confirmation with `approval_required` and a level-4 reason. A suspended
+supplier is a `mandatory_failure` on a new PO.
+
+Payments: a supplier voucher needs an approved invoice, may not exceed its outstanding balance, and
+a bounce requires a reason and opens an exception. Cheques carry number and due date; paying before
+the due date yields an info warning. AP aging buckets invoices by due date and the snapshot endpoint
+stores a point-in-time row per supplier.
+
+The login gate is `ICONCRETE_2FA_ENABLED` (default false). With it off, company name + username +
+password sign in directly; the captcha after repeated failures, password hashing, lockout, session
+revocation and audit are unchanged. There is no TOTP or email code in the codebase.
+
+Not executed here: browser/E2E, screen reader, deployment, push. The five M9 screens were
+typechecked, routed, labelled and built, but not rendered.

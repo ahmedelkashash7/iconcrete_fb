@@ -36,6 +36,7 @@ import {
   type ValuationMethod,
 } from '../../src/core/inventory';
 import { MIN_OVERRIDE_REASON, type RuleDefinition } from '../../src/core/rules';
+import { loadSupplierStanding, supplierPoBlock } from './procurement';
 import type { Db, Executor } from '../db/client';
 import { M1Error } from './m1';
 import type { B1Context } from './projects';
@@ -979,11 +980,18 @@ export class InventoryService {
     const poNo = payload.poNo?.trim() || documentNo('PO');
     await this.db.withTenant(context.tenant, async (tx) => {
       const suppliers = await tx.unsafe<Row>(
-        `select id from suppliers where company_id = $1 and id = $2 and deleted_at is null`,
+        `select id, status from suppliers where company_id = $1 and id = $2 and deleted_at is null`,
         [context.tenant.companyId, payload.supplierId],
       );
       if (!suppliers[0]) {
         throw new M1Error('supplier_not_found', 404, `supplier ${payload.supplierId} does not exist`);
+      }
+      const standing = await loadSupplierStanding(tx, context.tenant.companyId, payload.supplierId);
+      if (str(suppliers[0].status) === 'suspended' || standing?.grade === 'D') {
+        throw new M1Error('supplier_suspended', 422, 'procurement.supplier_suspended', {
+          supplierId: payload.supplierId,
+          grade: standing?.grade ?? null,
+        });
       }
       const duplicate =
         (
@@ -1069,11 +1077,15 @@ export class InventoryService {
     return this.readPurchaseOrder(context, id);
   };
 
-  confirmPurchaseOrder = async (context: B1Context, id: string): Promise<PurchaseOrderRow> => {
+  confirmPurchaseOrder = async (
+    context: B1Context,
+    id: string,
+    reason = '',
+  ): Promise<PurchaseOrderRow> => {
     this.level(context, INVENTORY_LEVELS.approvePurchaseRequest, 'confirm a purchase order');
     await this.db.withTenant(context.tenant, async (tx) => {
       const rows = await tx.unsafe<Row>(
-        `select id, status, po_no from purchase_orders
+        `select id, status, po_no, supplier_id from purchase_orders
           where company_id = $1 and id = $2 and deleted_at is null`,
         [context.tenant.companyId, id],
       );
@@ -1094,12 +1106,32 @@ export class InventoryService {
           field: 'items',
         });
       }
+      const supplierId = str(row.supplier_id);
+      const standing = await loadSupplierStanding(tx, context.tenant.companyId, supplierId);
+      const block = supplierPoBlock(standing);
+      let documentOverride = false;
+      if (block.outcome === 'failure') {
+        throw new M1Error('supplier_suspended', 422, block.reason, { supplierId });
+      }
+      if (block.outcome === 'approval_required') {
+        if (context.actor.roleLevel >= 4 && reason.trim().length >= MIN_OVERRIDE_REASON) {
+          documentOverride = true;
+        } else {
+          throw new M1Error('approval_required', 403, block.reason, {
+            check: 'supplierDocuments',
+            supplierId,
+          });
+        }
+      }
       await tx.unsafe(
         `update purchase_orders set status = 'confirmed', ordered_by = $3, ordered_at = now(),
             updated_by = $3 where company_id = $1 and id = $2`,
         [context.tenant.companyId, id, context.actor.username],
       );
-      await audit(tx, context, 'purchase_order.confirmed', id, {});
+      await audit(tx, context, 'purchase_order.confirmed', id, {
+        documentOverride,
+        reason: reason.trim(),
+      });
     });
     return this.readPurchaseOrder(context, id);
   };

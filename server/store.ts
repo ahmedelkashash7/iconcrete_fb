@@ -51,6 +51,8 @@ export interface AppEnv {
   maxFailedLogins: number;
   lockoutMinutes: number;
   maxUploadBytes: number;
+  /** Opt-in only. Off by default until SMTP/OTP delivery is configured. */
+  twoFactorEnabled?: boolean;
 }
 
 const boundedInteger = (
@@ -86,6 +88,7 @@ export const readEnv = (env: NodeJS.ProcessEnv = process.env): AppEnv => {
     idleMinutes: boundedInteger(env.ICONCRETE_SESSION_IDLE_MINUTES, 30, 1, 1440, 'ICONCRETE_SESSION_IDLE_MINUTES'),
     maxFailedLogins: boundedInteger(env.ICONCRETE_MAX_FAILED_LOGINS, 5, 1, 50, 'ICONCRETE_MAX_FAILED_LOGINS'),
     lockoutMinutes: boundedInteger(env.ICONCRETE_LOCKOUT_MINUTES, 15, 1, 1440, 'ICONCRETE_LOCKOUT_MINUTES'),
+    twoFactorEnabled: env.ICONCRETE_2FA_ENABLED === 'true',
     maxUploadBytes: boundedInteger(
       env.ICONCRETE_MAX_UPLOAD_BYTES,
       2_097_152,

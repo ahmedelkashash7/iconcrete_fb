@@ -280,6 +280,7 @@ export const seedDemo = async (db: Db): Promise<SeedResult> => {
     // call has no company to seed yet, so the seed step owns the per-company rows.
     await tx.unsafe(`select seed_sales_rule_catalogue()`);
     await tx.unsafe(`select seed_m8_sales_rules()`);
+    await tx.unsafe(`select seed_m9_procurement_rules()`);
 
     await tx.unsafe(
       `insert into plants (id, company_id, name_ar, name_en, city) values
