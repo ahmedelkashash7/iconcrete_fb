@@ -311,3 +311,18 @@ statement with the requested id in `meta.extra`. Covered by the second-tenant te
   rendered in a browser (G6). The supplier evaluation form previews the grade but does not itself
   suspend anyone until published. Legacy M1 purchase orders are not routed through the M9 standing
   check; only the inventory PO path is.
+
+## Update — 2026-11-05 (login failure)
+
+- **LOGIN FIXED: company label mismatch + normalized company lookup.** The database stores
+  `CMP-0001` / `شركة آي كونكريت التجريبية` / `IConcrete Demo Company`, and `admin` (USR-0001,
+  role level 5) exists for that company. The reported screen value `IConcrete التجربة` is not a
+  stored name; the SQL lookup compared only `lower(p_name)` against `name_ar`, `name_en`, `tax_id`
+  and `id`, so it returned no row and the API answered `401 company_not_found`. Migration 0021
+  replaces `auth_find_company` with an exact match first, then a normalized comparison that ignores
+  the qualifiers `شركة`, `company`, `demo`, `التجريبية`, `التجربة`, `trial`, `test`, whitespace,
+  punctuation and Arabic letter variants. The in-memory path uses the same normalization. The login
+  form pre-fill remains the seed's exact `شركة آي كونكريت التجريبية` / `IConcrete Demo Company`.
+  `admin` / `Demo@2026` now returns `200` for the canonical names, `IConcrete` and the saved
+  `IConcrete التجربة` label. The second-step state is logged at startup; it is disabled here
+  (`ICONCRETE_2FA_ENABLED=false`).

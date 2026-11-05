@@ -45,12 +45,17 @@ describe('ICONCRETE API', () => {
   const call = (path: string, init: RequestInit = {}) =>
     app.handle(new Request(`http://localhost${path}`, init));
 
-  const login = async (username: string, password = 'Demo@2026', captcha?: { challengeId: string; answer: string }) => {
+  const login = async (
+    username: string,
+    password = 'Demo@2026',
+    captcha?: { challengeId: string; answer: string },
+    company = 'ICONCRETE Demo Company',
+  ) => {
     const response = await call('/api/auth/login', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        company: 'ICONCRETE Demo Company',
+        company,
         username,
         password,
         ...(captcha ? { captcha } : {}),
@@ -91,6 +96,15 @@ describe('ICONCRETE API', () => {
     expect(body.token?.startsWith('ic_')).toBe(true);
     expect(body.user?.role_level).toBe(5);
     expect(new Date(body.expiresAt ?? 0).getTime()).toBeGreaterThan(Date.now());
+  });
+
+  test('a saved company label with different qualifiers still signs in', async () => {
+    const arabicReportLabel = await login('admin', 'Demo@2026', undefined, 'IConcrete التجربة');
+    expect(arabicReportLabel.response.status).toBe(200);
+    expect(arabicReportLabel.body.user?.username).toBe('admin');
+
+    const shortLabel = await login('admin', 'Demo@2026', undefined, 'IConcrete');
+    expect(shortLabel.response.status).toBe(200);
   });
 
   test('wrong password and unknown company are rejected', async () => {

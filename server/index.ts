@@ -320,6 +320,9 @@ export const createApp = async (
         if (!result.ok) {
           failedAttempts.set(username.toLowerCase(), (failedAttempts.get(username.toLowerCase()) ?? 0) + 1);
           const status = result.code === 'account_locked' ? 423 : 401;
+          console.warn(
+            `[auth] login failure company=${JSON.stringify(company)} username=${JSON.stringify(username)} code=${result.code} status=${status}`,
+          );
           return json(
             {
               error: result.code,
@@ -1285,5 +1288,8 @@ if (import.meta.main) {
   });
   console.log(
     `ICONCRETE API listening on http://0.0.0.0:${port} (storage: ${app.storageMode}${app.db ? ', postgres' : ', memory'})`,
+  );
+  console.log(
+    `ICONCRETE login second step: ${app.env.twoFactorEnabled ? 'enabled' : 'disabled'} (ICONCRETE_2FA_ENABLED=${app.env.twoFactorEnabled ? 'true' : 'false'})`,
   );
 }

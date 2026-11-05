@@ -48,13 +48,29 @@ export const toSafeUser = (user: AuthedUser): SafeUser => ({
 export const hashToken = (token: string): string =>
   new Bun.CryptoHasher('sha256').update(token).digest('hex');
 
+// Mirrors auth_company_key() in migration 0021: exact matches still win, then common
+// labels such as "IConcrete التجربة" and "IConcrete Demo Company" compare equal.
+export const companyKey = (name: string): string =>
+  name
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/شركة|company|demo|التجريبية|التجربة|trial|test/g, '')
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ة/g, 'ه')
+    .replace(/[\s\p{P}]/gu, '');
+
 const findCompany = (store: AppStore, name: string) => {
   const wanted = name.trim().toLowerCase();
   const company = store.dataset.company;
   const candidates = [company.name_ar, company.name_en, company.tax_id, company.id].map((value) =>
     value.trim().toLowerCase(),
   );
-  return candidates.includes(wanted) ? company : undefined;
+  if (candidates.includes(wanted)) return company;
+  const wantedKey = companyKey(name);
+  if (!wantedKey) return undefined;
+  const names = [company.name_ar, company.name_en].map(companyKey);
+  return names.includes(wantedKey) ? company : undefined;
 };
 
 export interface LoginInput {

@@ -103,6 +103,20 @@ describeDb('durable authentication', () => {
     if (restricted && restricted !== owner) await restricted.close();
   });
 
+  dbTest('login accepts a saved company label with different qualifiers', async () => {
+    const app = await createApp(ENV, SETTINGS);
+    try {
+      const savedLabel = await login(app, 'IConcrete التجربة', 'admin', 'Demo@2026');
+      expect(savedLabel.status).toBe(200);
+      expect(savedLabel.body.token?.toString().startsWith('ic_')).toBe(true);
+
+      const shortLabel = await login(app, 'IConcrete', 'admin', 'Demo@2026');
+      expect(shortLabel.status).toBe(200);
+    } finally {
+      await app.db?.close();
+    }
+  });
+
   dbTest('login stores only a hashed token and the session survives a restart', async () => {
     const first = await createApp(ENV, SETTINGS);
     const result = await login(first, DEMO_COMPANY, 'admin', 'Demo@2026');
