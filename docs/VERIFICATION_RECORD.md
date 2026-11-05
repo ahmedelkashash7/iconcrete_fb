@@ -351,3 +351,52 @@ material master, valuation method, cancellation and voiding 5. The plant scope i
 service on every write, and the DB test proves the restricted role sees no foreign rows.
 
 Not executed here: browser/E2E, screen reader, LibreOffice recalculation, deployment, push.
+
+---
+
+# Verification record — M7 orders and distribution (2026-11-05)
+
+| Step | Command | Result |
+|---|---|---|
+| Typecheck | `bun run typecheck` | 0 errors |
+| Migration on a fresh database | `bun run db:migrate` against a newly created database | `applied: 0001_m1_organization.sql … 0018_m7_orders.sql`; `skipped: none` |
+| Seed | `bun run db:seed` | succeeds; the sales rule catalogue is inserted per company |
+| New M7 tests | `bun test tests/m7/orders.test.ts` | **15 pass** — 7 pure lifecycle/credit/volume tests + 8 database scenarios (append-only quotation versions and a revision appending version 2, a signed contract pinning its version, credit warn/approval, blacklisted customer, duplicate quotation/order/ticket, ticket trip/truck and multiple batches, contract limit and missing reference, plant and tenant isolation) |
+| Unit/API/DB tests | `bun test` (with `DATABASE_URL` and `ICONCRETE_RLS_URL`) | **353 pass, 0 fail**, 38 files |
+| Data dictionary | `bun run schema:docs` | regenerated from the live schema, 2,862 lines, 92 tables |
+| Build | `bun run build` | success; entry 373.47 kB (110.24 kB gzip) |
+
+M7 adds `quotations`, `quotation_items`, `quotation_versions`, `contracts`, `contract_versions`,
+`sales_order_items`, `delivery_tickets` and `delivery_ticket_batches`, and extends the existing
+`customers`, `projects` and `orders` forward-only (0002 and 0009 already created them). All new
+tables carry tenant RLS and a restrictive plant policy. The application role has only
+`select, insert` on `quotation_versions` and `contract_versions`, so a version cannot be edited or
+deleted even before the append-only trigger fires; the repository has no update path either.
+
+A quotation approval appends a version holding a full JSON snapshot of its lines, totals, customer
+and validity date. `reviseQuotation` starts a new draft and the next approval appends version 2;
+version 1 keeps its rows and is surfaced unchanged in the history. A contract stores the approved
+`quotation_version_id`; a later quotation approval cannot move that pin, which the DB test proves by
+revising and re-approving after signature.
+
+Credit exposure is derived, never typed: posted receivables (`issued`, `partially_paid`,
+`overdue`) plus open order totals, with the candidate order added. Above 100% of the customer's
+effective limit (the `customer_credit_limits` history when the customer row has none) records a
+warning and sets `orders.credit_status`; above 110% is `approval_required` and needs a level-4
+actor and a written reason. A blacklisted customer is a hard failure at every level. Discount
+thresholds are the configurable `sales.discount_approval_pct` and `sales.discount_max_pct` rules,
+seeded with no value and no source note; a discount on an unconfigured threshold therefore never
+passes. No limit was invented and no default was seeded.
+
+A delivery ticket must name a trip and a truck; the service also checks the truck is the trip's
+truck. When batch lines are recorded their volumes must cover the loaded volume, and several batch
+lines may sit on one ticket. More delivered than loaded is `approval_required` unless a level-4
+actor supplies a reason. Delivery progress is the sum of confirmed and delivered ticket volumes,
+so a partial delivery is a figure (`delivery_state = partial`) and not a status.
+
+Access is enforced by role level: read 1, quotation/order/ticket creation and production moves 3,
+quotation approval, order confirmation/hold/cancel and customer master 4, contract signing,
+activation/void and document cancellation 5. The plant scope is re-checked in the service on every
+write, and the DB test proves the restricted role sees no foreign rows.
+
+Not executed here: browser/E2E, screen reader, LibreOffice recalculation, deployment, push.

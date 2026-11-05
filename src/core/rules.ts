@@ -26,7 +26,7 @@ export const RULE_CLASSIFICATIONS: readonly RuleClassification[] = [
   'authorized_override',
 ];
 
-export type RuleModule = 'mix_design' | 'batching' | 'quality' | 'fleet' | 'inventory';
+export type RuleModule = 'mix_design' | 'batching' | 'quality' | 'fleet' | 'inventory' | 'sales';
 
 export const RULE_MODULES: readonly RuleModule[] = [
   'mix_design',
@@ -34,6 +34,7 @@ export const RULE_MODULES: readonly RuleModule[] = [
   'quality',
   'fleet',
   'inventory',
+  'sales',
 ];
 
 export type RuleStatus = 'active' | 'retired';

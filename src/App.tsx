@@ -14,9 +14,12 @@ import { canAccessPage, PAGES, PAGE_MIN_LEVEL, type PageKey } from './core/rbac'
  */
 const DashboardPage = lazy(() => import('./pages/DashboardPage').then((m) => ({ default: m.DashboardPage })));
 const ReportsPage = lazy(() => import('./pages/ReportsPage').then((m) => ({ default: m.ReportsPage })));
-const CustomersPage = lazy(() => import('./pages/CustomersPage').then((m) => ({ default: m.CustomersPage })));
+const CustomerListPage = lazy(() => import('./pages/CustomerListPage').then((m) => ({ default: m.CustomerListPage })));
 const ProjectsPage = lazy(() => import('./pages/ProjectsPage').then((m) => ({ default: m.ProjectsPage })));
-const OrdersPage = lazy(() => import('./pages/OrdersPage').then((m) => ({ default: m.OrdersPage })));
+const SalesOrderPage = lazy(() => import('./pages/SalesOrderPage').then((m) => ({ default: m.SalesOrderPage })));
+const QuotationPage = lazy(() => import('./pages/QuotationPage').then((m) => ({ default: m.QuotationPage })));
+const ContractPage = lazy(() => import('./pages/ContractPage').then((m) => ({ default: m.ContractPage })));
+const DeliveryTicketPage = lazy(() => import('./pages/DeliveryTicketPage').then((m) => ({ default: m.DeliveryTicketPage })));
 const MixDesignsPage = lazy(() => import('./pages/MixDesignsPage').then((m) => ({ default: m.MixDesignsPage })));
 const BatchListPage = lazy(() => import('./pages/BatchListPage').then((m) => ({ default: m.BatchListPage })));
 const QualityListPage = lazy(() => import('./pages/QualityListPage').then((m) => ({ default: m.QualityListPage })));
@@ -96,11 +99,17 @@ export const App = () => {
           ) : page === 'reports' ? (
             <ReportsPage />
           ) : page === 'customers' ? (
-            <CustomersPage />
+            <CustomerListPage />
           ) : page === 'projects' ? (
             <ProjectsPage />
           ) : page === 'orders' ? (
-            <OrdersPage />
+            <SalesOrderPage />
+          ) : page === 'quotations' ? (
+            <QuotationPage />
+          ) : page === 'contracts' ? (
+            <ContractPage />
+          ) : page === 'deliveryTickets' ? (
+            <DeliveryTicketPage />
           ) : page === 'mixDesigns' ? (
             <MixDesignsPage />
           ) : page === 'batches' ? (

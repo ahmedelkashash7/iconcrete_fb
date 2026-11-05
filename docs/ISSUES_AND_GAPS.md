@@ -205,3 +205,36 @@ statement with the requested id in `meta.extra`. Covered by the second-tenant te
   entry are available on screen; supplier master creation is API-only. There is no transfer screen,
   no material-lot quality screen, and no reorder-policy screen. The R1 rule-value editor remains an
   API surface, so a level-5 user configures `inventory.*` values over the API for now.
+
+## Update — 2026-11-05 (M7 orders and distribution)
+
+- **Sales entities exist now.** `quotations`, `quotation_items`, `quotation_versions`,
+  `contracts`, `contract_versions`, `sales_order_items`, `delivery_tickets` and
+  `delivery_ticket_batches` are migrated with tenant and plant RLS. `customers`, `projects` and
+  `orders` already existed and were extended forward-only (customer code/contact/addresses/credit
+  limit/blacklist, project site contact, order quotation/contract/total/credit/hold/cancel fields)
+  rather than recreated.
+- **Versions are evidence.** The app role has only select/insert on the version tables, and a
+  trigger refuses update/delete as a second line. There is no edit path in the repository. A
+  revision starts a new draft and the next approval appends the next version.
+- **A signed contract is pinned.** `contracts.quotation_version_id` names one approved version and
+  is never updated by a newer quotation. Contract signature and void append a contract version.
+- **Credit is derived.** Exposure is posted receivables plus open orders; 100%/110% are fixed by
+  the execution specification, not configuration. The effective limit falls back to the latest
+  `customer_credit_limits` row when `customers.credit_limit` is null, so existing M1 customers keep
+  their historical limit.
+- **Deviations from the plan / execution scope.** The execution scope names `customer_projects`
+  and `sales_orders`; this build uses the existing `projects` and `orders` headers to avoid a
+  duplicate master, with the project code and order number remaining the unique business keys, and
+  adds `sales_order_items` for the lines. `quotation_versions` has no per-version `status` column:
+  the status is inside the immutable snapshot and the quotation header carries the live status.
+  The plan's leads, opportunities, price lists, seasonal prices, volume commitments, discount
+  approval rows, proof of delivery, returned loads, diversions and credit-check rows are **not
+  implemented**; the discount gate records its reason in the audit event, not a separate approval
+  table. These remain future work (M8 scope and later).
+- Still open: the customer, quotation, contract, order and ticket screens pass the typecheck,
+  route/nav/label tests and build, but were **not rendered in a browser** (G6). Delivery-ticket
+  creation is offered for confirmed/scheduled/in-production orders; the trip list comes from
+  dispatch assignments and the batch selector from the batching API. There is no price-list or
+  discount-approval screen, and the R1 rule-value editor remains an API surface, so a level-5 user
+  configures `sales.*` values over the API for now.
