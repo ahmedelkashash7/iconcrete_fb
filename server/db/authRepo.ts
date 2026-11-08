@@ -75,6 +75,20 @@ export interface CreateSessionInput {
   idleMinutes: number;
 }
 
+export interface MagicIssueRow {
+  user_id: string;
+  company_id: string;
+  username: string;
+  expires_at: string | Date;
+}
+
+export interface MagicConsumeRow extends PgUserRow {
+  session_id: string;
+  expires_at: string | Date;
+  company_name_ar: string;
+  company_name_en: string;
+}
+
 const iso = (value: string | Date | null): string | null =>
   value === null ? null : value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 
@@ -94,6 +108,41 @@ export class PgAuthRepository {
       companyId,
       username,
     ]);
+    return rows[0] ?? null;
+  }
+
+  async issueMagicToken(
+    username: string,
+    tokenHash: string,
+    companyHint: string,
+    ttlMinutes: number,
+  ): Promise<MagicIssueRow | null> {
+    const rows = await this.db.unsafe<MagicIssueRow>(
+      `select * from auth_magic_issue($1, $2, $3, $4)`,
+      [username, tokenHash, companyHint, ttlMinutes],
+    );
+    return rows[0] ?? null;
+  }
+
+  async consumeMagicToken(input: {
+    magicHash: string;
+    sessionId: string;
+    sessionHash: string;
+    ip: string;
+    device: string;
+    idleMinutes: number;
+  }): Promise<MagicConsumeRow | null> {
+    const rows = await this.db.unsafe<MagicConsumeRow>(
+      `select * from auth_magic_consume($1, $2, $3, $4, $5, $6)`,
+      [
+        input.magicHash,
+        input.sessionId,
+        input.sessionHash,
+        input.ip,
+        input.device,
+        input.idleMinutes,
+      ],
+    );
     return rows[0] ?? null;
   }
 

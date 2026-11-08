@@ -2,6 +2,10 @@
 
 const TOKEN_KEY = 'iconcrete.token';
 
+// Last-resort transport for sandboxed iframes where both storage APIs throw.
+// It keeps the bearer usable for the current page even when the cookie is blocked.
+let memoryToken: string | null = null;
+
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
@@ -18,18 +22,45 @@ export class ApiError extends Error {
 
 export const getToken = (): string | null => {
   try {
-    return window.sessionStorage.getItem(TOKEN_KEY);
+    const local = window.localStorage.getItem(TOKEN_KEY);
+    if (local) {
+      memoryToken = local;
+      return local;
+    }
+    // Migrate a token written by the previous sessionStorage build.
+    const legacy = window.sessionStorage.getItem(TOKEN_KEY);
+    if (legacy) {
+      window.localStorage.setItem(TOKEN_KEY, legacy);
+      window.sessionStorage.removeItem(TOKEN_KEY);
+      memoryToken = legacy;
+      return legacy;
+    }
   } catch {
-    return null;
+    try {
+      const legacy = window.sessionStorage.getItem(TOKEN_KEY);
+      if (legacy) memoryToken = legacy;
+      return legacy;
+    } catch {
+      return memoryToken;
+    }
   }
+  return memoryToken;
 };
 
 export const setToken = (token: string | null): void => {
+  memoryToken = token;
   try {
-    if (token) window.sessionStorage.setItem(TOKEN_KEY, token);
-    else window.sessionStorage.removeItem(TOKEN_KEY);
+    if (token) window.localStorage.setItem(TOKEN_KEY, token);
+    else window.localStorage.removeItem(TOKEN_KEY);
+    // Never leave a second copy behind after the switch to localStorage.
+    window.sessionStorage.removeItem(TOKEN_KEY);
   } catch {
-    /* session storage unavailable */
+    try {
+      if (token) window.sessionStorage.setItem(TOKEN_KEY, token);
+      else window.sessionStorage.removeItem(TOKEN_KEY);
+    } catch {
+      /* storage unavailable */
+    }
   }
 };
 
@@ -47,12 +78,14 @@ export const apiFetch = async <T>(path: string, init: RequestInit = {}): Promise
 
   let response: Response;
   try {
-    response = await fetch(path, { ...init, headers });
+    response = await fetch(path, { ...init, headers, credentials: init.credentials ?? 'include' });
   } catch {
     throw new ApiError(0, 'network_error');
   }
 
-  if (response.status === 401) {
+  // Login and the persistence ping own their 401 handling: they must show the
+  // exact code instead of a generic "session expired" banner.
+  if (response.status === 401 && path !== '/api/auth/login' && path !== '/api/auth/me') {
     handleUnauthorized();
   }
 
@@ -78,7 +111,7 @@ export const apiDownload = async (path: string): Promise<Blob> => {
   if (token) headers.set('authorization', `Bearer ${token}`);
   let response: Response;
   try {
-    response = await fetch(path, { headers });
+    response = await fetch(path, { headers, credentials: 'include' });
   } catch {
     throw new ApiError(0, 'network_error');
   }

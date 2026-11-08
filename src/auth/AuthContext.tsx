@@ -55,9 +55,14 @@ interface StoredSession {
 
 const readStoredSession = (): StoredSession | null => {
   try {
-    const raw = window.sessionStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as StoredSession;
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (raw) return JSON.parse(raw) as StoredSession;
+    // Migrate a session written by the previous sessionStorage build.
+    const legacy = window.sessionStorage.getItem(STORAGE_KEY);
+    if (!legacy) return null;
+    window.localStorage.setItem(STORAGE_KEY, legacy);
+    window.sessionStorage.removeItem(STORAGE_KEY);
+    return JSON.parse(legacy) as StoredSession;
   } catch {
     return null;
   }
@@ -65,8 +70,9 @@ const readStoredSession = (): StoredSession | null => {
 
 const writeStoredSession = (session: StoredSession | null): void => {
   try {
-    if (session) window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(session));
-    else window.sessionStorage.removeItem(STORAGE_KEY);
+    if (session) window.localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+    else window.localStorage.removeItem(STORAGE_KEY);
+    window.sessionStorage.removeItem(STORAGE_KEY);
   } catch {
     /* ignore storage failures */
   }
@@ -79,11 +85,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     const restore = async () => {
-      const stored = readStoredSession();
-      if (!stored || !getToken()) {
+      // The magic-link path stores only the bearer token; rebuild the session from /me.
+      if (!getToken()) {
         setLoading(false);
         return;
       }
+      const cached = readStoredSession();
+      if (cached) setSession(cached);
       try {
         const fresh = await apiFetch<{ user: SessionUser; company: CompanyInfo }>('/api/auth/me');
         const next = { user: fresh.user, company: fresh.company };
@@ -125,6 +133,26 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setToken(result.token);
       writeStoredSession(next);
       setSession(next);
+
+      // Immediate persistence check: the iframe may have dropped the session transport.
+      try {
+        const verified = await apiFetch<{ user: SessionUser; company: CompanyInfo }>('/api/auth/me');
+        const confirmed = { user: verified.user, company: verified.company };
+        writeStoredSession(confirmed);
+        setSession(confirmed);
+      } catch (error) {
+        setToken(null);
+        writeStoredSession(null);
+        setSession(null);
+        if (error instanceof ApiError) {
+          return {
+            ok: false,
+            code: error.status === 401 ? 'session_not_persisted' : (error.code || 'server_error'),
+          };
+        }
+        return { ok: false, code: 'network_error' };
+      }
+
       setSessionMessage(null);
       return { ok: true };
     } catch (error) {

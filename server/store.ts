@@ -53,6 +53,8 @@ export interface AppEnv {
   maxUploadBytes: number;
   /** Opt-in only. Off by default until SMTP/OTP delivery is configured. */
   twoFactorEnabled?: boolean;
+  /** Development-only one-time fallback. Must never be enabled in production. */
+  magicLogin?: boolean;
 }
 
 const boundedInteger = (
@@ -81,6 +83,13 @@ const boundedInteger = (
 export const readEnv = (env: NodeJS.ProcessEnv = process.env): AppEnv => {
   const environment = parseRuntimeEnvironment(env.ICONCRETE_ENV);
   assertProductionSecrets(env, environment);
+  const magicLogin = env.ICONCRETE_MAGIC_LOGIN === 'true';
+  if (environment === 'production' && magicLogin) {
+    throw new ConfigurationError(
+      'magic_login_forbidden',
+      'ICONCRETE_MAGIC_LOGIN is a development fallback and must be disabled in production.',
+    );
+  }
 
   return {
     environment,
@@ -89,6 +98,7 @@ export const readEnv = (env: NodeJS.ProcessEnv = process.env): AppEnv => {
     maxFailedLogins: boundedInteger(env.ICONCRETE_MAX_FAILED_LOGINS, 5, 1, 50, 'ICONCRETE_MAX_FAILED_LOGINS'),
     lockoutMinutes: boundedInteger(env.ICONCRETE_LOCKOUT_MINUTES, 15, 1, 1440, 'ICONCRETE_LOCKOUT_MINUTES'),
     twoFactorEnabled: env.ICONCRETE_2FA_ENABLED === 'true',
+    magicLogin,
     maxUploadBytes: boundedInteger(
       env.ICONCRETE_MAX_UPLOAD_BYTES,
       2_097_152,

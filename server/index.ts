@@ -9,6 +9,8 @@ import {
   authenticate,
   authenticatePg,
   extractBearer,
+  extractCookie,
+  hashToken,
   resolveSession,
   resolveSessionPg,
   revokeSession,
@@ -17,7 +19,7 @@ import {
   type AuthRequestMeta,
   type SafeUser,
 } from './auth';
-import { PgAuthRepository } from './db/authRepo';
+import { PgAuthRepository, safeUserFromRow } from './db/authRepo';
 import { PgImportRepository } from './db/importRepo';
 import { loadDatasetForTenant } from './db/datasetRepo';
 import { loadCompanyForTenant, loadPlantsForTenant, loadUsersForTenant } from './db/orgRepo';
@@ -48,6 +50,116 @@ import type { Customer, DemoDataset, InventoryItem, Lang, Material, RoleLevel } 
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
 const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+const SESSION_COOKIE = 'ic_session';
+const TOKEN_STORAGE_KEY = 'iconcrete.token';
+
+const html = (body: string, status = 200): Response =>
+  new Response(body, {
+    status,
+    headers: {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff',
+    },
+  });
+
+const escapeHtml = (value: string): string =>
+  value.replace(/[&<>"']/g, (character) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character] ?? character,
+  );
+
+const secureRequest = (request: Request): boolean =>
+  new URL(request.url).protocol === 'https:' ||
+  (request.headers.get('x-forwarded-proto') ?? '').split(',')[0]?.trim() === 'https';
+
+const sessionCookie = (request: Request, token: string, maxAgeSeconds: number): string => {
+  const secure = secureRequest(request);
+  return [
+    `${SESSION_COOKIE}=${encodeURIComponent(token)}`,
+    'Path=/',
+    'HttpOnly',
+    `SameSite=${secure ? 'None' : 'Lax'}`,
+    ...(secure ? ['Secure'] : []),
+    `Max-Age=${Math.max(1, Math.floor(maxAgeSeconds))}`,
+  ].join('; ');
+};
+
+const withSessionCookie = (
+  response: Response,
+  request: Request,
+  token: string,
+  maxAgeSeconds: number,
+): Response => {
+  response.headers.append('set-cookie', sessionCookie(request, token, maxAgeSeconds));
+  return response;
+};
+
+const clearSessionCookie = (response: Response, request: Request): Response => {
+  const secure = secureRequest(request);
+  response.headers.append(
+    'set-cookie',
+    [
+      `${SESSION_COOKIE}=`,
+      'Path=/',
+      'HttpOnly',
+      `SameSite=${secure ? 'None' : 'Lax'}`,
+      ...(secure ? ['Secure'] : []),
+      'Max-Age=0',
+      'Expires=Thu, 01 Jan 1970 00:00:00 GMT',
+    ].join('; '),
+  );
+  return response;
+};
+
+const authLog = (
+  route: string,
+  status: number,
+  code: string,
+  request: Request,
+  detail = '',
+): void => {
+  const line =
+    `[auth] ${route} status=${status} code=${code} ` +
+    `bearer=${extractBearer(request) ? 'present' : 'absent'} ` +
+    `cookie=${extractCookie(request, SESSION_COOKIE) ? 'present' : 'absent'}` +
+    (detail ? ` ${detail}` : '');
+  if (status >= 400) console.warn(line);
+  else console.log(line);
+};
+
+const magicPage = (title: string, body: string): string => `<!doctype html>
+<html lang="ar" dir="rtl">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${escapeHtml(title)}</title>
+<style>body{font-family:system-ui,sans-serif;max-width:34rem;margin:3rem auto;padding:1rem;line-height:1.7}a{display:inline-block;padding:.8rem 1.2rem;background:#6d28d9;color:#fff;text-decoration:none;border-radius:.5rem}code{direction:ltr;unicode-bidi:embed}</style>
+</head><body><h1>${escapeHtml(title)}</h1>${body}</body></html>`;
+
+const magicLinkPage = (url: string, expiresAt: string): string =>
+  magicPage(
+    'دخول ICONCRETE المباشر',
+    `<p>اضغط الرابط التالي مرة واحدة للدخول. ينتهي في <code>${escapeHtml(expiresAt)}</code>.</p>
+     <p><a href="${escapeHtml(url)}">افتح ICONCRETE</a></p>
+     <p>إذا لم يعمل الرابط، افتح هذا العنوان مباشرة:</p><p><code>${escapeHtml(url)}</code></p>`,
+  );
+
+const magicSuccessPage = (token: string): string =>
+  magicPage(
+    'تم إنشاء الجلسة',
+    `<p>جارٍ تحويلك إلى الصفحة الرئيسية…</p>
+     <script>
+       try { localStorage.setItem('${TOKEN_STORAGE_KEY}', ${JSON.stringify(token)}); } catch (error) {}
+       try { localStorage.removeItem('iconcrete.session'); } catch (error) {}
+       try { sessionStorage.removeItem('${TOKEN_STORAGE_KEY}'); sessionStorage.removeItem('iconcrete.session'); } catch (error) {}
+       location.replace('/#/dashboard');
+     </script>
+     <noscript>فعّل JavaScript أو استخدم تسجيل الدخول العادي.</noscript>`,
+  );
+
+const magicErrorPage = (code: string): string =>
+  magicPage(
+    'تعذر الدخول',
+    `<p>رمز الدخول غير صالح أو انتهت صلاحيته.</p><p><code>${escapeHtml(code)}</code></p>`,
+  );
 
 const json = (data: unknown, status = 200): Response =>
   new Response(JSON.stringify(data), { status, headers: JSON_HEADERS });
@@ -104,6 +216,7 @@ export const createApp = async (
   const store = await createStore(env);
   const captchas = new Map<string, Captcha>();
   const failedAttempts = new Map<string, number>();
+  const magicTokens = new Map<string, { userId: string; companyId: string; expiresAt: string }>();
 
   const references = (): ReferenceIndex => ({
     customers: store.dataset.customers.map((customer) => customer.id),
@@ -164,9 +277,11 @@ export const createApp = async (
     minLevel: RoleLevel,
   ): Promise<
     | { ok: true; user: SafeUser; roleLevel: RoleLevel }
-    | { ok: false; response: Response }
+    | { ok: false; response: Response; code: string }
   > => {
-    const token = extractBearer(request);
+    // Accept either transport on every request. Bearer is primary in iframe previews;
+    // cookie remains available for normal same-origin deployments.
+    const token = extractBearer(request) ?? extractCookie(request, SESSION_COOKIE);
 
     if (authRepo) {
       const lookup = await resolveSessionPg(
@@ -179,6 +294,7 @@ export const createApp = async (
         return {
           ok: false,
           response: fail(lookup.code === 'forbidden' ? 403 : 401, lookup.code),
+          code: lookup.code,
         };
       }
       return { ok: true, user: lookup.user, roleLevel: lookup.user.role_level };
@@ -192,6 +308,7 @@ export const createApp = async (
       return {
         ok: false,
         response: fail(lookup.code === 'forbidden' ? 403 : 401, lookup.code),
+        code: lookup.code,
       };
     }
     return { ok: true, user: toSafeUser(lookup.user), roleLevel: lookup.user.role_level };
@@ -277,6 +394,126 @@ export const createApp = async (
         });
       }
 
+      if (path === '/api/auth/magic' && method === 'GET') {
+        if (!env.magicLogin) {
+          authLog('auth/magic', 404, 'magic_login_disabled', request);
+          return fail(404, 'magic_login_disabled');
+        }
+        const username = (url.searchParams.get('user') ?? '').trim();
+        const companyHint = (url.searchParams.get('company') ?? '').trim();
+        if (!username) return fail(400, 'missing_credentials');
+
+        const rawToken = `mg_${crypto.randomUUID().replaceAll('-', '')}${crypto.randomUUID().replaceAll('-', '')}`;
+        const tokenHash = hashToken(rawToken);
+        let expiresAt: string;
+
+        if (authRepo) {
+          const issued = await authRepo.issueMagicToken(username, tokenHash, companyHint, 5);
+          if (!issued) {
+            authLog('auth/magic', 404, 'magic_user_not_found', request);
+            return fail(404, 'magic_user_not_found');
+          }
+          expiresAt = new Date(issued.expires_at).toISOString();
+        } else {
+          const candidates = store.users.filter(
+            (candidate) => candidate.is_active && candidate.username.toLowerCase() === username.toLowerCase(),
+          );
+          if (candidates.length !== 1) {
+            authLog('auth/magic', 404, 'magic_user_not_found', request);
+            return fail(404, 'magic_user_not_found');
+          }
+          const user = candidates[0];
+          if (!user) return fail(404, 'magic_user_not_found');
+          expiresAt = new Date(Date.now() + 5 * 60_000).toISOString();
+          magicTokens.set(tokenHash, {
+            userId: user.id,
+            companyId: user.company_id,
+            expiresAt,
+          });
+        }
+
+        const base = (process.env.ICONCRETE_PUBLIC_URL ?? new URL(request.url).origin).replace(/\/+$/, '');
+        const magicUrl = `${base}/api/auth/magic/consume?token=${encodeURIComponent(rawToken)}`;
+        authLog('auth/magic', 200, 'ok', request);
+
+        const wantsHtml = (request.headers.get('accept') ?? '').includes('text/html');
+        if (wantsHtml) return html(magicLinkPage(magicUrl, expiresAt));
+        return json({ url: magicUrl, expiresAt });
+      }
+
+      if (path === '/api/auth/magic/consume' && method === 'GET') {
+        const rawToken = url.searchParams.get('token') ?? '';
+        const wantsJson = (request.headers.get('accept') ?? '').includes('application/json') ||
+          url.searchParams.get('format') === 'json';
+        const magicFailure = (status: number, code: string): Response => {
+          authLog('auth/magic/consume', status, code, request);
+          return wantsJson ? fail(status, code) : html(magicErrorPage(code), status);
+        };
+
+        if (!env.magicLogin) return magicFailure(404, 'magic_login_disabled');
+        if (!rawToken) return magicFailure(400, 'magic_token_missing');
+
+        const magicHash = hashToken(rawToken);
+        const sessionToken = `ic_${crypto.randomUUID()}${crypto.randomUUID()}`;
+        const sessionId = `SES-${crypto.randomUUID().slice(0, 12)}`;
+        let sessionExpiresAt: string;
+        let user: SafeUser;
+        let company: { name_ar: string; name_en: string };
+
+        if (authRepo) {
+          const consumed = await authRepo.consumeMagicToken({
+            magicHash,
+            sessionId,
+            sessionHash: hashToken(sessionToken),
+            ip: clientIp(request),
+            device: request.headers.get('user-agent') ?? 'unknown',
+            idleMinutes: env.idleMinutes,
+          });
+          if (!consumed) return magicFailure(401, 'magic_token_invalid');
+          sessionExpiresAt = new Date(consumed.expires_at).toISOString();
+          user = safeUserFromRow(consumed) as SafeUser;
+          company = { name_ar: consumed.company_name_ar, name_en: consumed.company_name_en };
+        } else {
+          const stored = magicTokens.get(magicHash);
+          const userRecord = stored ? store.users.find((candidate) => candidate.id === stored.userId) : null;
+          if (!stored || !userRecord || new Date(stored.expiresAt).getTime() <= Date.now()) {
+            if (stored) magicTokens.delete(magicHash);
+            return magicFailure(401, 'magic_token_invalid');
+          }
+          magicTokens.delete(magicHash);
+          sessionExpiresAt = new Date(Date.now() + env.idleMinutes * 60_000).toISOString();
+          store.sessions.set(hashToken(sessionToken), {
+            id: sessionId,
+            user_id: userRecord.id,
+            token_hash: hashToken(sessionToken),
+            ip_address: clientIp(request),
+            device_info: request.headers.get('user-agent') ?? 'unknown',
+            created_at: new Date().toISOString(),
+            expires_at: sessionExpiresAt,
+            revoked_at: null,
+          });
+          user = toSafeUser(userRecord);
+          company = { name_ar: store.dataset.company.name_ar, name_en: store.dataset.company.name_en };
+        }
+
+        await audit({
+          user_id: user.id,
+          username: user.username,
+          company_id: user.company_id,
+          action: 'auth.magic_login',
+          table_name: 'sessions',
+          record_id: sessionId,
+          ip_address: clientIp(request),
+          details: { method: 'magic_link', session_id: sessionId },
+        });
+        authLog('auth/magic/consume', 200, 'ok', request);
+
+        const response = wantsJson
+          ? json({ ok: true, token: sessionToken, expiresAt: sessionExpiresAt, user, company })
+          : html(magicSuccessPage(sessionToken));
+        return withSessionCookie(response, request, sessionToken, env.idleMinutes * 60);
+      }
+
       if (path === '/api/auth/login' && method === 'POST') {
         const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
         const company = String(body.company ?? '');
@@ -285,6 +522,7 @@ export const createApp = async (
         const captcha = body.captcha as { challengeId?: string; answer?: string } | undefined;
 
         if (!company || !username || !password) {
+          authLog('auth/login', 400, 'missing_credentials', request);
           return fail(400, 'missing_credentials');
         }
 
@@ -296,11 +534,13 @@ export const createApp = async (
           const challengeId = captcha?.challengeId ?? '';
           const challenge = captchas.get(challengeId);
           if (!challenge || challenge.expiresAt < Date.now()) {
+            authLog('auth/login', 400, 'captcha_required', request);
             return fail(400, 'captcha_required');
           }
           const answer = Number(captcha?.answer ?? '');
           if (!Number.isFinite(answer) || answer !== challenge.answer) {
             captchas.delete(challengeId);
+            authLog('auth/login', 400, 'captcha_invalid', request);
             return fail(400, 'captcha_invalid');
           }
           captchas.delete(challengeId);
@@ -320,8 +560,12 @@ export const createApp = async (
         if (!result.ok) {
           failedAttempts.set(username.toLowerCase(), (failedAttempts.get(username.toLowerCase()) ?? 0) + 1);
           const status = result.code === 'account_locked' ? 423 : 401;
-          console.warn(
-            `[auth] login failure company=${JSON.stringify(company)} username=${JSON.stringify(username)} code=${result.code} status=${status}`,
+          authLog(
+            'auth/login',
+            status,
+            result.code,
+            request,
+            `company=${JSON.stringify(company)} username=${JSON.stringify(username)}`,
           );
           return json(
             {
@@ -337,17 +581,27 @@ export const createApp = async (
         }
 
         failedAttempts.delete(username.toLowerCase());
-        return json({
-          token: result.token,
-          expiresAt: result.expiresAt,
-          user: result.user,
-          company: { name_ar: result.companyNameAr, name_en: result.companyNameEn },
-        });
+        authLog('auth/login', 200, 'ok', request);
+        return withSessionCookie(
+          json({
+            token: result.token,
+            expiresAt: result.expiresAt,
+            user: result.user,
+            company: { name_ar: result.companyNameAr, name_en: result.companyNameEn },
+          }),
+          request,
+          result.token,
+          env.idleMinutes * 60,
+        );
       }
 
       if (path === '/api/auth/me' && method === 'GET') {
         const session = await sessionFor(request, 1);
-        if (!session.ok) return session.response;
+        if (!session.ok) {
+          authLog('auth/me', session.response.status, session.code, request);
+          return session.response;
+        }
+        authLog('auth/me', 200, 'ok', request);
         const company = db
           ? await loadCompanyForTenant(db, tenantContext(session.user))
           : store.dataset.company;
@@ -362,11 +616,11 @@ export const createApp = async (
       }
 
       if (path === '/api/auth/logout' && method === 'POST') {
-        const token = extractBearer(request);
+        const token = extractBearer(request) ?? extractCookie(request, SESSION_COOKIE);
         if (authRepo) {
           // Writes auth.logout + auth.session.revoked; the session is dead immediately.
           await revokeSessionPg(authRepo, token, requestMeta(request));
-          return json({ ok: true });
+          return clearSessionCookie(json({ ok: true }), request);
         }
         if (token) {
           const lookup = resolveSession(store, token, { idleMinutes: env.idleMinutes });
@@ -384,7 +638,7 @@ export const createApp = async (
           }
           revokeSession(store, token);
         }
-        return json({ ok: true });
+        return clearSessionCookie(json({ ok: true }), request);
       }
 
       if (path === '/api/dashboard' && method === 'GET') {

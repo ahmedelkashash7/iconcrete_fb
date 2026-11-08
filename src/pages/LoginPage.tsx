@@ -15,6 +15,19 @@ interface CaptchaChallenge {
   questionEn: string;
 }
 
+const LOGIN_ERROR_LABEL: Record<string, string> = {
+  company_not_found: 'login.errorCompany',
+  invalid_credentials: 'login.errorInvalid',
+  account_locked: 'login.errorLocked',
+  account_inactive: 'login.errorInactive',
+  captcha_required: 'login.errorCaptcha',
+  captcha_invalid: 'login.errorCaptcha',
+  session_not_persisted: 'login.errorSession',
+  network_error: 'login.errorNetwork',
+  server_error: 'login.errorServer',
+  internal_error: 'login.errorServer',
+};
+
 export const LoginPage = ({ onSuccess }: { onSuccess: () => void }) => {
   const { t, i18n } = useTranslation();
   const { login, sessionMessage, clearSessionMessage } = useAuth();
@@ -62,34 +75,13 @@ export const LoginPage = ({ onSuccess }: { onSuccess: () => void }) => {
       return;
     }
 
-    switch (outcome.code) {
-      case 'invalid_credentials':
-        setError(t('login.errorInvalid'));
-        break;
-      case 'company_not_found':
-        setError(t('login.errorCompany'));
-        break;
-      case 'account_locked':
-        setError(t('login.errorLocked'));
-        break;
-      case 'account_inactive':
-        setError(t('login.errorInactive'));
-        break;
-      case 'captcha_required':
-      case 'captcha_invalid':
-        setError(t('login.errorCaptcha'));
-        await loadCaptcha();
-        break;
-      case 'network_error':
-      case 'http_502':
-      case 'http_503':
-        setError(t('login.errorNetwork'));
-        break;
-      default:
-        setError(t('errors.generic'));
-    }
+    const code = outcome.code ?? 'server_error';
+    const labelKey = LOGIN_ERROR_LABEL[code] ?? 'login.errorServer';
+    setError(`${t(labelKey)} (${code})`);
 
-    if (outcome.captchaRequired && !captcha) {
+    if (code === 'captcha_required' || code === 'captcha_invalid') {
+      await loadCaptcha();
+    } else if (outcome.captchaRequired && !captcha) {
       await loadCaptcha();
     }
   };

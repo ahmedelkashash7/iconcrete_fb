@@ -227,6 +227,22 @@ export const extractBearer = (request: Request): string | null => {
   return match?.[1] ?? null;
 };
 
+/** Reads a named cookie without exposing or logging its value. */
+export const extractCookie = (request: Request, name = 'ic_session'): string | null => {
+  const header = request.headers.get('cookie') ?? '';
+  for (const part of header.split(';')) {
+    const separator = part.indexOf('=');
+    if (separator < 0) continue;
+    if (part.slice(0, separator).trim() !== name) continue;
+    try {
+      return decodeURIComponent(part.slice(separator + 1).trim()) || null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+};
+
 // ---------------------------------------------------------------------------
 // Durable (PostgreSQL) authentication.
 //

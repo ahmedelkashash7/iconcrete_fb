@@ -77,6 +77,8 @@ export const en: TranslationDict = {
   'login.errorInactive': 'This account is inactive. Contact your administrator.',
   'login.errorCaptcha': 'Incorrect verification code.',
   'login.errorNetwork': 'Cannot reach the server. Make sure the API is running and retry.',
+  'login.errorSession': 'The session was not persisted after sign-in. Retry or use the magic link.',
+  'login.errorServer': 'The server failed during sign-in.',
   'login.sessionExpired': 'Session ended after 30 minutes of inactivity. Please sign in again.',
   'login.twoFactorNote': 'Direct sign-in with company name, username and password. The second factor is bypassed until email/OTP delivery is configured.',
   'login.securityNote': 'Sessions expire after 30 idle minutes • temporary lock after 5 failed attempts • passwords stored as one-way hashes.',

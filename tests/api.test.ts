@@ -98,6 +98,16 @@ describe('ICONCRETE API', () => {
     expect(new Date(body.expiresAt ?? 0).getTime()).toBeGreaterThan(Date.now());
   });
 
+  test('bearer-only requests authenticate when cookies are blocked', async () => {
+    const { body } = await login('admin');
+    expect(body.token).toBeDefined();
+    const me = await call('/api/auth/me', { headers: auth(String(body.token)) });
+    expect(me.status).toBe(200);
+    const payload = (await me.json()) as { user?: { username?: string } };
+    expect(payload.user?.username).toBe('admin');
+    expect((await call('/api/auth/me')).status).toBe(401);
+  });
+
   test('a saved company label with different qualifiers still signs in', async () => {
     const arabicReportLabel = await login('admin', 'Demo@2026', undefined, 'IConcrete التجربة');
     expect(arabicReportLabel.response.status).toBe(200);
