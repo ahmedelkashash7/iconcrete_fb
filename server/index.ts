@@ -42,6 +42,7 @@ import { handleMixDesigns } from './api/mixDesigns';
 import { handleBatches } from './api/batches';
 import { handleQuality } from './api/quality';
 import { handleFleet } from './api/fleet';
+import { handleDispatch } from './api/dispatch';
 import { handleInventory } from './api/inventory';
 import { handleSales } from './api/sales';
 import { handleProcurement } from './api/procurement';
@@ -1424,6 +1425,23 @@ export const createApp = async (
       if (path === '/api/fleet' || path.startsWith('/api/fleet/')) {
         return (
           (await handleFleet(request, {
+            db,
+            auth: async (req, minLevel) => {
+              const session = await sessionFor(req, minLevel);
+              return session.ok ? { ok: true, user: session.user } : session;
+            },
+          })) ?? fail(404, 'not_found')
+        );
+      }
+
+      if (
+        path === '/api/trips' ||
+        path.startsWith('/api/trips/') ||
+        path === '/api/trucks' ||
+        path.startsWith('/api/trucks/')
+      ) {
+        return (
+          (await handleDispatch(request, {
             db,
             auth: async (req, minLevel) => {
               const session = await sessionFor(req, minLevel);

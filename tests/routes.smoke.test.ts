@@ -191,6 +191,15 @@ describe('route and navigation smoke', () => {
       ['/api/fleet/trips/TRP-0001', 'GET'],
       ['/api/fleet/maintenance', 'GET'],
       ['/api/rules', 'GET'],
+      ['/api/trips', 'GET'],
+      ['/api/trips', 'POST'],
+      ['/api/trips/TRP-0001/advance', 'POST'],
+      ['/api/trips/TRP-0001/assign', 'POST'],
+      ['/api/trips/TRP-0001/cancel', 'POST'],
+      ['/api/trips/TRP-0001/events', 'GET'],
+      ['/api/trucks', 'GET'],
+      ['/api/trucks', 'POST'],
+      ['/api/trucks/TRK-0001/status', 'PATCH'],
     ];
     const unresolved: string[] = [];
     for (const [path, method] of routes) {
