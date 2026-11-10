@@ -61,3 +61,6 @@ tmp/
 artifacts/
 playwright-report/
 test-results/
+
+# generated Sites preview bundle
+freebuff-sites-build/

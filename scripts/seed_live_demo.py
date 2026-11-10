@@ -6,7 +6,7 @@ trails and server timestamps are preserved. The script never opens a database
 connection and never prints credentials.
 
 Required environment:
-  ICONCRETE_ADMIN_PASSWORD   demo admin password (not stored in this file)
+  DEMO_ADMIN_PASSWORD       demo admin password (not stored in this file)
 
 Optional:
   ICONCRETE_URL              default https://iconcrete-fb.onrender.com
@@ -26,7 +26,12 @@ from datetime import date, datetime, timedelta, timezone
 BASE = os.environ.get("ICONCRETE_URL", "https://iconcrete-fb.onrender.com").rstrip("/")
 COMPANY = os.environ.get("ICONCRETE_COMPANY", "IConcrete Demo Company")
 USERNAME = os.environ.get("ICONCRETE_ADMIN_USER", "admin")
-PASSWORD = os.environ.get("ICONCRETE_ADMIN_PASSWORD", "")
+PASSWORD = (
+    os.environ.get("DEMO_ADMIN_PASSWORD")
+    or os.environ.get("ICONCRETE_DEMO_ADMIN_PASSWORD")
+    or os.environ.get("ICONCRETE_ADMIN_PASSWORD")
+    or ""
+).strip()
 PLANT_CAIRO = "PLT-0001"
 PLANT_GIZA = "PLT-0002"
 TODAY = datetime.now(timezone.utc).date()
@@ -619,7 +624,7 @@ def seed_invoices(api: Api, customers: dict[str, str]) -> int:
 
 def main() -> int:
     if not PASSWORD:
-        print("ICONCRETE_ADMIN_PASSWORD is required", file=sys.stderr)
+        print("DEMO_ADMIN_PASSWORD is required", file=sys.stderr)
         return 2
     api = Api()
     api.login()

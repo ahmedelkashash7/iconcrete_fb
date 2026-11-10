@@ -1,3 +1,4 @@
+import { TEST_ADMIN_PASSWORD } from '../helpers/credentials';
 /**
  * M11 — dispatch and trips.
  *
@@ -99,7 +100,7 @@ const dbTest = SKIP_REASON ? test.skip : test;
 const SETTINGS: StorageSettings = { mode: 'postgres', environment: 'development', databaseUrl: RLS_URL };
 const ENV: AppEnv = {
   environment: 'development',
-  adminPassword: 'Demo@2026',
+  adminPassword: TEST_ADMIN_PASSWORD,
   idleMinutes: 30,
   maxFailedLogins: 5,
   lockoutMinutes: 15,
@@ -139,7 +140,7 @@ const login = async (app: App, username: string, company: string): Promise<strin
   const response = await call(app, 'POST', '/api/auth/login', '', {
     company,
     username,
-    password: 'Demo@2026',
+    password: TEST_ADMIN_PASSWORD,
   });
   expect(response.status).toBe(200);
   return String(response.body.token ?? '');

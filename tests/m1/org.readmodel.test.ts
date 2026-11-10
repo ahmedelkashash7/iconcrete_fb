@@ -1,3 +1,4 @@
+import { TEST_ADMIN_PASSWORD } from '../helpers/credentials';
 /**
  * Tenant-scoped users and plants (gap G1) against a real PostgreSQL server.
  *
@@ -83,7 +84,7 @@ describeDb('tenant-scoped users and plants', () => {
     // No password hashes or demo rows can leak through the read model.
     const serialized = JSON.stringify(one);
     expect(serialized.includes('password_hash')).toBe(false);
-    expect(serialized.includes('Demo@2026')).toBe(false);
+    expect(serialized.includes(TEST_ADMIN_PASSWORD)).toBe(false);
   });
 
   dbTest('company A reads only its own plants', async () => {

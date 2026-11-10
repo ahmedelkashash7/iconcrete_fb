@@ -323,6 +323,6 @@ statement with the requested id in `meta.extra`. Covered by the second-tenant te
   the qualifiers `شركة`, `company`, `demo`, `التجريبية`, `التجربة`, `trial`, `test`, whitespace,
   punctuation and Arabic letter variants. The in-memory path uses the same normalization. The login
   form pre-fill remains the seed's exact `شركة آي كونكريت التجريبية` / `IConcrete Demo Company`.
-  `admin` / `Demo@2026` now returns `200` for the canonical names, `IConcrete` and the saved
+  `admin` with the configured demo password now returns `200` for the canonical names, `IConcrete` and the saved
   `IConcrete التجربة` label. The second-step state is logged at startup; it is disabled here
   (`ICONCRETE_2FA_ENABLED=false`).

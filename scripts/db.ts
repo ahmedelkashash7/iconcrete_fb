@@ -56,7 +56,7 @@ try {
     if (!password || password.trim().length < 8) {
       console.error(
         'ICONCRETE_APP_PASSWORD must be set to a value of at least 8 characters.\n' +
-          'Example: ICONCRETE_APP_PASSWORD="$(openssl rand -base64 24)" bun run db:role',
+          'Set ICONCRETE_APP_PASSWORD from your local secret store, then run: bun run db:role',
       );
       process.exit(5);
     }

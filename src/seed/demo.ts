@@ -125,7 +125,13 @@ const buildPlants = (): Plant[] => [
   },
 ];
 
-const DEMO_PASSWORD = 'Demo@2026';
+// Never ship a demo login secret in source. Server-side seeding and local demos read
+// the password from the environment; the browser bundle intentionally gets a blank hint.
+const readEnvPassword = (name: string): string =>
+  typeof process === 'undefined' ? '' : (process.env[name] ?? '').trim();
+
+const DEMO_PASSWORD =
+  readEnvPassword('DEMO_ADMIN_PASSWORD') || readEnvPassword('ICONCRETE_DEMO_ADMIN_PASSWORD');
 
 const buildUsers = (): User[] => {
   const base = {

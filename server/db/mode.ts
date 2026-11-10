@@ -100,9 +100,6 @@ export class ConfigurationError extends Error {
   }
 }
 
-/** The published demo credential. It must never become a production credential. */
-export const DEMO_ADMIN_PASSWORD = 'Demo@2026';
-
 /**
  * Production refuses to boot with demo/questionable credentials. Nothing here logs or
  * echoes a secret: the messages name the variable, never its value.
@@ -117,10 +114,10 @@ export const assertProductionSecrets = (
   if (!adminPassword) {
     throw new ConfigurationError(
       'production_admin_secret_missing',
-      'ICONCRETE_ENV=production requires ICONCRETE_DEMO_ADMIN_PASSWORD from the secret store. Refusing to start with the built-in demo credential.',
+      'ICONCRETE_ENV=production requires ICONCRETE_DEMO_ADMIN_PASSWORD from the secret store. Refusing to start without an admin credential.',
     );
   }
-  if (adminPassword === DEMO_ADMIN_PASSWORD || /^(demo|password|changeme|change-me)/i.test(adminPassword)) {
+  if (/^(demo|password|changeme|change-me)/i.test(adminPassword)) {
     throw new ConfigurationError(
       'production_demo_credential_rejected',
       'ICONCRETE_DEMO_ADMIN_PASSWORD still matches a demo/placeholder value. Provide a real secret; demo credentials are development-only.',

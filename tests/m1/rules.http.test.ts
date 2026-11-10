@@ -1,3 +1,4 @@
+import { TEST_ADMIN_PASSWORD } from '../helpers/credentials';
 /**
  * R1 — rule API over HTTP: catalogue, level guard, audited value change, override.
  *
@@ -27,7 +28,7 @@ const dbTest = SKIP_REASON ? test.skip : test;
 const SETTINGS: StorageSettings = { mode: 'postgres', environment: 'development', databaseUrl: RLS_URL };
 const ENV: AppEnv = {
   environment: 'development',
-  adminPassword: 'Demo@2026',
+  adminPassword: TEST_ADMIN_PASSWORD,
   idleMinutes: 30,
   maxFailedLogins: 5,
   lockoutMinutes: 15,
@@ -50,7 +51,7 @@ const login = async (app: App, username: string): Promise<string> => {
       body: JSON.stringify({
         company: BRAND.demoCompany.ar,
         username,
-        password: 'Demo@2026',
+        password: TEST_ADMIN_PASSWORD,
       }),
     }),
   );

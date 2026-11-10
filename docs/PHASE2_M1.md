@@ -61,7 +61,7 @@ bun test                                  # unit + API + integration (skips DB w
 bun run typecheck
 bun run build
 .venv/bin/python -m pytest excel_generator/tests -q
-ICONCRETE_RLS_URL=postgres://iconcrete_app:...@127.0.0.1:5432/iconcrete bun test tests/m1/postgres.integration.test.ts
+ICONCRETE_RLS_URL=<your-rls-connection-string> bun test tests/m1/postgres.integration.test.ts
 ```
 
 The integration suite skips with an explicit reason when no database is configured; it

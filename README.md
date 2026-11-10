@@ -37,8 +37,8 @@ or the header. The UI proxies `/api` to the Bun server.
 | `viewer` | Viewer | 1 | Dashboard (no financial balance), reports (no export) |
 
 Company: `ICONCRETE Demo Company` (or `شركة آي كونكريت التجريبية`)
-Password for every demo account: `Demo@2026` (override the admin password with
-`ICONCRETE_DEMO_ADMIN_PASSWORD` before any non-demo use).
+Demo accounts use the password supplied through `DEMO_ADMIN_PASSWORD` (and
+`ICONCRETE_DEMO_ADMIN_PASSWORD` in production) — never a value committed to the repo.
 
 Demo company/plant: شركة آي كونكريت التجريبية / IConcrete Demo Company —
 محطة آي كونكريت التجريبية - القاهرة / IConcrete Demo Plant - Cairo. Currency EGP, timezone Africa/Cairo.

@@ -22,7 +22,6 @@ export interface SeedResult {
   purchaseOrders: number;
 }
 
-const DEMO_PASSWORD = 'Demo@2026';
 const SECOND_COMPANY = {
   id: 'CMP-0002',
   nameAr: 'شركة العزل التجريبية',
@@ -148,7 +147,8 @@ const insertEntry = async (
 /** Idempotent: re-running the seed resets the demo data for the two demo companies. */
 export const seedDemo = async (db: Db): Promise<SeedResult> => {
   const dataset = createDemoDataset();
-  const adminPassword = process.env.ICONCRETE_DEMO_ADMIN_PASSWORD ?? DEMO_PASSWORD;
+  const adminPassword =
+    process.env.ICONCRETE_DEMO_ADMIN_PASSWORD?.trim() || process.env.DEMO_ADMIN_PASSWORD?.trim() || '';
 
   const companyIds = [dataset.company.id, SECOND_COMPANY.id];
   await db.transaction(async (tx) => {
@@ -366,7 +366,7 @@ export const seedDemo = async (db: Db): Promise<SeedResult> => {
           level: user.role_level,
           plants: user.assigned_plant_ids,
         },
-        user.username === 'admin' ? adminPassword : DEMO_PASSWORD,
+        adminPassword,
       );
     }
 
@@ -382,7 +382,7 @@ export const seedDemo = async (db: Db): Promise<SeedResult> => {
         level: 5,
         plants: [SECOND_COMPANY.plantId],
       },
-      DEMO_PASSWORD,
+      adminPassword,
     );
 
     // ------------------------------------------------------- customers

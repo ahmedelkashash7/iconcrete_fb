@@ -1,10 +1,11 @@
+import { TEST_ADMIN_PASSWORD } from './helpers/credentials';
 import { beforeAll, describe, expect, test } from 'bun:test';
 import { createApp, type App } from '../server/index';
 import type { AppEnv } from '../server/store';
 
 const env: AppEnv = {
   environment: 'development',
-  adminPassword: 'Demo@2026',
+  adminPassword: TEST_ADMIN_PASSWORD,
   idleMinutes: 30,
   maxFailedLogins: 5,
   lockoutMinutes: 15,
@@ -47,7 +48,7 @@ describe('ICONCRETE API', () => {
 
   const login = async (
     username: string,
-    password = 'Demo@2026',
+    password = TEST_ADMIN_PASSWORD,
     captcha?: { challengeId: string; answer: string },
     company = 'ICONCRETE Demo Company',
   ) => {
@@ -109,11 +110,11 @@ describe('ICONCRETE API', () => {
   });
 
   test('a saved company label with different qualifiers still signs in', async () => {
-    const arabicReportLabel = await login('admin', 'Demo@2026', undefined, 'IConcrete التجربة');
+    const arabicReportLabel = await login('admin', TEST_ADMIN_PASSWORD, undefined, 'IConcrete التجربة');
     expect(arabicReportLabel.response.status).toBe(200);
     expect(arabicReportLabel.body.user?.username).toBe('admin');
 
-    const shortLabel = await login('admin', 'Demo@2026', undefined, 'IConcrete');
+    const shortLabel = await login('admin', TEST_ADMIN_PASSWORD, undefined, 'IConcrete');
     expect(shortLabel.response.status).toBe(200);
   });
 
@@ -125,7 +126,7 @@ describe('ICONCRETE API', () => {
     const response = await call('/api/auth/login', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ company: 'Unknown Company', username: 'admin', password: 'Demo@2026' }),
+      body: JSON.stringify({ company: 'Unknown Company', username: 'admin', password: TEST_ADMIN_PASSWORD }),
     });
     expect(response.status).toBe(401);
     expect(((await response.json()) as LoginBody).error).toBe('company_not_found');
@@ -357,7 +358,7 @@ describe('ICONCRETE API', () => {
     expect(lastStatus).toBe(423);
     expect(lastError).toBe('account_locked');
 
-    const correct = await attempt('Demo@2026', await solve());
+    const correct = await attempt(TEST_ADMIN_PASSWORD, await solve());
     expect(correct.status).toBe(423);
   });
 });

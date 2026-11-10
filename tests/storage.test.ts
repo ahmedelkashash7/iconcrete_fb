@@ -2,7 +2,6 @@ import { describe, expect, test } from 'bun:test';
 import {
   assertProductionSecrets,
   ConfigurationError,
-  DEMO_ADMIN_PASSWORD,
   describeMode,
   looksLikePlaceholderSecret,
   parseRuntimeEnvironment,
@@ -11,6 +10,7 @@ import {
   StorageModeError,
 } from '../server/db/mode';
 import { readEnv } from '../server/store';
+import { TEST_ADMIN_PASSWORD, TEST_DEMO_LIKE_PASSWORD } from './helpers/credentials';
 
 const codeOf = (fn: () => unknown): string => {
   try {
@@ -117,12 +117,11 @@ describe('production credential enforcement', () => {
     );
   });
 
-  test('the published demo password can never become a production password', () => {
-    expect(DEMO_ADMIN_PASSWORD).toBe('Demo@2026');
+  test('a demo-looking password can never become a production password', () => {
     expect(
       codeOf(() =>
         assertProductionSecrets(
-          { ...productionDb, ICONCRETE_DEMO_ADMIN_PASSWORD: DEMO_ADMIN_PASSWORD },
+          { ...productionDb, ICONCRETE_DEMO_ADMIN_PASSWORD: TEST_DEMO_LIKE_PASSWORD },
           'production',
         ),
       ),
@@ -131,14 +130,14 @@ describe('production credential enforcement', () => {
       codeOf(() =>
         readEnv({
           ...productionDb,
-          ICONCRETE_DEMO_ADMIN_PASSWORD: 'Demo@2026',
+          ICONCRETE_DEMO_ADMIN_PASSWORD: TEST_DEMO_LIKE_PASSWORD,
         }),
       ),
     ).toBe('production_demo_credential_rejected');
     expect(
       codeOf(() =>
         assertProductionSecrets(
-          { ...productionDb, ICONCRETE_DEMO_ADMIN_PASSWORD: 'changeme-please' },
+          { ...productionDb, ICONCRETE_DEMO_ADMIN_PASSWORD: TEST_DEMO_LIKE_PASSWORD },
           'production',
         ),
       ),
@@ -148,7 +147,7 @@ describe('production credential enforcement', () => {
   test('a short admin secret blocks production', () => {
     expect(
       codeOf(() =>
-        assertProductionSecrets({ ...productionDb, ICONCRETE_DEMO_ADMIN_PASSWORD: 'Str0ng!' }, 'production'),
+        assertProductionSecrets({ ...productionDb, ICONCRETE_DEMO_ADMIN_PASSWORD: `s-${crypto.randomUUID().slice(0, 6)}` }, 'production'),
       ),
     ).toBe('production_admin_secret_weak');
   });
@@ -156,10 +155,10 @@ describe('production credential enforcement', () => {
   test('a valid production configuration resolves', () => {
     const env = readEnv({
       ...productionDb,
-      ICONCRETE_DEMO_ADMIN_PASSWORD: 'pr0duction-Secret-Value',
+      ICONCRETE_DEMO_ADMIN_PASSWORD: TEST_ADMIN_PASSWORD,
     });
     expect(env.environment).toBe('production');
-    expect(env.adminPassword).toBe('pr0duction-Secret-Value');
+    expect(env.adminPassword).toBe(TEST_ADMIN_PASSWORD);
     expect(env.idleMinutes).toBe(30);
   });
 
@@ -171,9 +170,9 @@ describe('production credential enforcement', () => {
     expect(codeOf(() => readEnv({ ICONCRETE_MAX_UPLOAD_BYTES: '99' }))).toBe('invalid_configuration');
   });
 
-  test('development keeps the demo credential local to development', () => {
+  test('development requires an explicit admin credential', () => {
     const env = readEnv({});
     expect(env.environment).toBe('development');
-    expect(env.adminPassword).toBe(DEMO_ADMIN_PASSWORD);
+    expect(env.adminPassword).toBe('');
   });
 });

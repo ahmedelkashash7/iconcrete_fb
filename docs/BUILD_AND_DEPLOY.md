@@ -42,7 +42,7 @@ Copy `.env.example` to `.env`; never commit `.env`. Production requires:
 - `ICONCRETE_ENV=production`
 - `ICONCRETE_STORAGE_MODE=postgres` (the API refuses memory in production)
 - `DATABASE_URL` with a non-placeholder secret
-- `ICONCRETE_DEMO_ADMIN_PASSWORD` of 12+ characters and not `Demo@2026`
+- `ICONCRETE_DEMO_ADMIN_PASSWORD` of 12+ characters and not a demo/placeholder value
 
 The server fails at startup on misconfiguration (`ConfigurationError` / `StorageModeError`).
 

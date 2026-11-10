@@ -4,7 +4,6 @@ import type { ValidationResult } from '../src/core/validation';
 import {
   assertProductionSecrets,
   ConfigurationError,
-  DEMO_ADMIN_PASSWORD,
   parseRuntimeEnvironment,
   type RuntimeEnvironment,
 } from './db/mode';
@@ -93,7 +92,7 @@ export const readEnv = (env: NodeJS.ProcessEnv = process.env): AppEnv => {
 
   return {
     environment,
-    adminPassword: env.ICONCRETE_DEMO_ADMIN_PASSWORD?.trim() || DEMO_ADMIN_PASSWORD,
+    adminPassword: env.ICONCRETE_DEMO_ADMIN_PASSWORD?.trim() || env.DEMO_ADMIN_PASSWORD?.trim() || '',
     idleMinutes: boundedInteger(env.ICONCRETE_SESSION_IDLE_MINUTES, 30, 1, 1440, 'ICONCRETE_SESSION_IDLE_MINUTES'),
     maxFailedLogins: boundedInteger(env.ICONCRETE_MAX_FAILED_LOGINS, 5, 1, 50, 'ICONCRETE_MAX_FAILED_LOGINS'),
     lockoutMinutes: boundedInteger(env.ICONCRETE_LOCKOUT_MINUTES, 15, 1, 1440, 'ICONCRETE_LOCKOUT_MINUTES'),
@@ -115,12 +114,15 @@ export const readEnv = (env: NodeJS.ProcessEnv = process.env): AppEnv => {
  */
 export const createStore = async (env: AppEnv = readEnv()): Promise<AppStore> => {
   const dataset = createDemoDataset();
+  // Local/test starts without a configured secret get an unguessable, non-persisted
+  // password. Production is rejected earlier by assertProductionSecrets.
+  const effectivePassword = env.adminPassword || `ephemeral-${crypto.randomUUID()}`;
   const users: AuthedUser[] = await Promise.all(
     dataset.users.map(async (user) => ({
       ...user,
       demo_password: '',
       password_hash: await Bun.password.hash(
-        user.username === 'admin' ? env.adminPassword : user.demo_password || 'Demo@2026',
+        user.username === 'admin' ? effectivePassword : user.demo_password || effectivePassword,
         { algorithm: 'argon2id' },
       ),
     })),

@@ -1,3 +1,4 @@
+import { TEST_ADMIN_PASSWORD } from '../helpers/credentials';
 /**
  * Durable authentication, session lifecycle, audit persistence and tenant isolation.
  *
@@ -37,7 +38,7 @@ const SETTINGS: StorageSettings = {
 
 const ENV: AppEnv = {
   environment: 'development',
-  adminPassword: 'Demo@2026',
+  adminPassword: TEST_ADMIN_PASSWORD,
   idleMinutes: 30,
   maxFailedLogins: 5,
   lockoutMinutes: 15,
@@ -106,11 +107,11 @@ describeDb('durable authentication', () => {
   dbTest('login accepts a saved company label with different qualifiers', async () => {
     const app = await createApp(ENV, SETTINGS);
     try {
-      const savedLabel = await login(app, 'IConcrete التجربة', 'admin', 'Demo@2026');
+      const savedLabel = await login(app, 'IConcrete التجربة', 'admin', TEST_ADMIN_PASSWORD);
       expect(savedLabel.status).toBe(200);
       expect(savedLabel.body.token?.toString().startsWith('ic_')).toBe(true);
 
-      const shortLabel = await login(app, 'IConcrete', 'admin', 'Demo@2026');
+      const shortLabel = await login(app, 'IConcrete', 'admin', TEST_ADMIN_PASSWORD);
       expect(shortLabel.status).toBe(200);
     } finally {
       await app.db?.close();
@@ -119,7 +120,7 @@ describeDb('durable authentication', () => {
 
   dbTest('login stores only a hashed token and the session survives a restart', async () => {
     const first = await createApp(ENV, SETTINGS);
-    const result = await login(first, DEMO_COMPANY, 'admin', 'Demo@2026');
+    const result = await login(first, DEMO_COMPANY, 'admin', TEST_ADMIN_PASSWORD);
     expect(result.status).toBe(200);
 
     const token = String(result.body.token ?? '');
@@ -152,7 +153,7 @@ describeDb('durable authentication', () => {
 
   dbTest('logout revokes the durable session and a restart keeps it revoked', async () => {
     const first = await createApp(ENV, SETTINGS);
-    const token = String((await login(first, DEMO_COMPANY, 'admin', 'Demo@2026')).body.token ?? '');
+    const token = String((await login(first, DEMO_COMPANY, 'admin', TEST_ADMIN_PASSWORD)).body.token ?? '');
 
     const session = await owner.unsafe<{ id: string }>(
       `select id from sessions where token_hash = $1`,
@@ -188,7 +189,7 @@ describeDb('durable authentication', () => {
 
   dbTest('expired sessions are rejected server-side and audited', async () => {
     const first = await createApp(ENV, SETTINGS);
-    const token = String((await login(first, DEMO_COMPANY, 'admin', 'Demo@2026')).body.token ?? '');
+    const token = String((await login(first, DEMO_COMPANY, 'admin', TEST_ADMIN_PASSWORD)).body.token ?? '');
     const session = await owner.unsafe<{ id: string }>(`select id from sessions where token_hash = $1`, [
       hashToken(token),
     ]);
@@ -276,7 +277,7 @@ describeDb('durable authentication', () => {
 
   dbTest('a second company cannot read the demo tenant dataset (API-level isolation)', async () => {
     const app = await createApp(ENV, SETTINGS);
-    const second = await login(app, SECOND_COMPANY, 'admin2', 'Demo@2026');
+    const second = await login(app, SECOND_COMPANY, 'admin2', TEST_ADMIN_PASSWORD);
     expect(second.status).toBe(200);
     const token = String(second.body.token ?? '');
 
@@ -306,8 +307,8 @@ describeDb('durable authentication', () => {
 
   dbTest('the API ledger is scoped to the signed-in company', async () => {
     const app = await createApp(ENV, SETTINGS);
-    const first = String((await login(app, DEMO_COMPANY, 'admin', 'Demo@2026')).body.token ?? '');
-    const second = String((await login(app, SECOND_COMPANY, 'admin2', 'Demo@2026')).body.token ?? '');
+    const first = String((await login(app, DEMO_COMPANY, 'admin', TEST_ADMIN_PASSWORD)).body.token ?? '');
+    const second = String((await login(app, SECOND_COMPANY, 'admin2', TEST_ADMIN_PASSWORD)).body.token ?? '');
 
     const demoCompany = await get(app, '/api/m1/trial-balance', first);
     const otherCompany = await get(app, '/api/m1/trial-balance', second);
@@ -363,7 +364,7 @@ describeDb('durable authentication', () => {
     expect(storage.durableSessions).toBe(false);
     expect(storage.authAdapter).toBe('memory');
 
-    const result = await login(demo, DEMO_COMPANY, 'admin', 'Demo@2026');
+    const result = await login(demo, DEMO_COMPANY, 'admin', TEST_ADMIN_PASSWORD);
     expect(result.status).toBe(200);
     expect((await get(demo, '/api/auth/me', String(result.body.token))).status).toBe(200);
 

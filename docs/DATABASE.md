@@ -30,7 +30,7 @@ createdb iconcrete
 psql iconcrete -c "create role iconcrete_app login"
 
 # 2. give the role a local password from the environment (value is never printed)
-ICONCRETE_APP_PASSWORD="$(openssl rand -base64 24)" bun run db:role
+ICONCRETE_APP_PASSWORD=<value from your local secret store> bun run db:role
 
 # 3. schema + demo data (run as an owner/superuser role)
 export DATABASE_URL=postgres://postgres@127.0.0.1:5432/iconcrete

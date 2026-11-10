@@ -1,3 +1,4 @@
+import { TEST_ADMIN_PASSWORD } from '../helpers/credentials';
 /**
  * G2 closure — the HTTP read path (dashboard + reports + customers) is database-backed.
  *
@@ -36,7 +37,7 @@ const SETTINGS: StorageSettings = {
 
 const ENV: AppEnv = {
   environment: 'development',
-  adminPassword: 'Demo@2026',
+  adminPassword: TEST_ADMIN_PASSWORD,
   idleMinutes: 30,
   maxFailedLogins: 5,
   lockoutMinutes: 15,
@@ -55,7 +56,7 @@ const login = async (app: App, company: string, username: string) => {
     new Request('http://localhost/api/auth/login', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ company, username, password: 'Demo@2026' }),
+      body: JSON.stringify({ company, username, password: TEST_ADMIN_PASSWORD }),
     }),
   );
   const body = (await response.json().catch(() => ({}))) as Json;

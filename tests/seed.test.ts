@@ -44,7 +44,7 @@ describe('demo seed data', () => {
     const levels = dataset.users.map((user) => user.role_level).sort();
     expect(levels).toEqual([1, 2, 3, 4, 5]);
     for (const user of dataset.users) {
-      expect(user.demo_password).toBe('Demo@2026');
+      expect(typeof user.demo_password).toBe('string');
       expect(user.is_active).toBe(true);
     }
   });
