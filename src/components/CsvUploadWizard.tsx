@@ -80,6 +80,8 @@ export const CsvUploadWizard = () => {
     else if (caught instanceof ApiError && caught.status === 503) setError('common.durableRequired');
     else if (caught instanceof ApiError && caught.code === 'duplicate_upload') setError('csv.duplicateUpload');
     else if (caught instanceof ApiError && caught.code === 'validation_failed') setError('csv.stillInvalid');
+    else if (caught instanceof ApiError && caught.code === 'invalid_headers') setError('csv.invalidHeaders');
+    else if (caught instanceof ApiError && (caught.status === 400 || caught.status === 422)) setError('csv.invalidFile');
     else setError('errors.network');
   };
 

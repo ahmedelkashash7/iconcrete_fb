@@ -216,8 +216,9 @@ export class CsvStagingService {
   async stage(context: CsvContext, input: CsvStageInput): Promise<CsvUpload> {
     const target = asTarget(input.target);
     if (input.rows.length === 0) throw new M1Error('no_rows', 422, 'the uploaded file contains no data rows');
-    if (input.plantId && context.tenant.plantIds.length > 0 && !context.tenant.plantIds.includes(input.plantId)) {
-      throw new M1Error('forbidden_plant', 403, `plant ${input.plantId} is outside the caller's scope`);
+    const plantId = input.plantId ?? context.tenant.plantIds[0] ?? null;
+    if (plantId && context.tenant.plantIds.length > 0 && !context.tenant.plantIds.includes(plantId)) {
+      throw new M1Error('forbidden_plant', 403, `plant ${plantId} is outside the caller's scope`);
     }
 
     const issues = validateCustomerRows(input.rows, context);
@@ -232,7 +233,7 @@ export class CsvStagingService {
           [
             id,
             context.tenant.companyId,
-            input.plantId,
+            plantId,
             input.fileHash,
             JSON.stringify({ fileName: input.fileName, target, rows: input.rows }),
             JSON.stringify(issues),

@@ -255,6 +255,8 @@ export const ar = {
   'csv.uploading': 'جارٍ الرفع…',
   'csv.fileRequired': 'اختر ملف CSV أولاً.',
   'csv.duplicateUpload': 'هذا الملف مرفوع بالفعل لهذه الشركة. اعتمد الملف الحالي أو عدّله.',
+  'csv.invalidHeaders': 'عناوين الأعمدة لا تطابق قالب العملاء. نزّل القالب واستخدم أعمدته كما هي.',
+  'csv.invalidFile': 'الملف مرفوض بسبب أخطاء في التحقق. راجع الأعمدة والصفوف ثم أعد الرفع.',
   'csv.statusLabel': 'الحالة',
   'csv.rowCount': 'الصفوف',
   'csv.errorCount': 'صفوف بها أخطاء',

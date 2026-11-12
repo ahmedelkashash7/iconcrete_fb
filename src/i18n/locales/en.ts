@@ -257,6 +257,8 @@ export const en: TranslationDict = {
   'csv.uploading': 'Uploading…',
   'csv.fileRequired': 'Choose a CSV file first.',
   'csv.duplicateUpload': 'This exact file is already staged for the company. Commit or edit the existing upload.',
+  'csv.invalidHeaders': 'The column headers do not match the customers template. Download the template and use its columns.',
+  'csv.invalidFile': 'The file was rejected by validation. Check the columns and rows, then upload it again.',
   'csv.statusLabel': 'Status',
   'csv.rowCount': 'Rows',
   'csv.errorCount': 'Rows with errors',
