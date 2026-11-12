@@ -281,10 +281,14 @@ describeDb('dispatch API', () => {
     expect(returned.return_time).not.toBeNull();
     expect(returned.cycle_minutes).not.toBeNull();
     expect(Number(returned.cycle_minutes)).toBeGreaterThanOrEqual(0);
+    // PostgreSQL Date objects must not leak as "Wed Nov 11" strings.
+    expect(String(returned.trip_date)).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(String(returned.created_at)).toMatch(/T.*Z$/);
+    expect(String(returned.return_time)).toMatch(/T.*Z$/);
 
     const events = await call(app, 'GET', `/api/trips/${encodeURIComponent(tripId)}/events`, dispatcherToken);
     expect(events.status).toBe(200);
-    const eventRows = events.body.events as Array<{ event: string; actor: string }>;
+    const eventRows = events.body.events as Array<{ event: string; actor: string; created_at: string }>;
     expect(eventRows.map((row) => row.event)).toEqual([
       'queued',
       'loading',
@@ -295,6 +299,7 @@ describeDb('dispatch API', () => {
       'returned',
     ]);
     expect(eventRows.every((row) => row.actor === 'dispatcher')).toBe(true);
+    expect(eventRows.every((row) => /T.*Z$/.test(String(row.created_at)))).toBe(true);
 
     const board = await call(app, 'GET', '/api/trips', dispatcherToken);
     expect(board.status).toBe(200);
@@ -305,6 +310,18 @@ describeDb('dispatch API', () => {
     expect(boardTrips.find((row) => row.id === tripId)?.group).toBe('done');
     const trucks = board.body.trucks as Array<{ id: string; status: string }>;
     expect(trucks.find((row) => row.id === truck.id)?.status).toBe('available');
+  });
+
+  dbTest('the M11 board excludes legacy M5 statuses instead of rendering raw translation keys', async () => {
+    const legacyId = `TRP-LEGACY-${suffix()}`;
+    await admin.unsafe(
+      `insert into trips (id, company_id, plant_id, status, created_by)
+       values ($1, 'CMP-0001', 'PLT-0001', 'planned', 'test')`,
+      [legacyId],
+    );
+    const board = await call(app, 'GET', '/api/trips', dispatcherToken);
+    expect(board.status).toBe(200);
+    expect((board.body.trips as Array<{ id: string }>).some((row) => row.id === legacyId)).toBe(false);
   });
 
   dbTest('a load above the truck capacity is refused and the trip stays loaded=false', async () => {

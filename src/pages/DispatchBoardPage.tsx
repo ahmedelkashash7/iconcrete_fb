@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ApiError, apiFetch } from '../api';
 import { useAuth } from '../auth/AuthContext';
@@ -191,6 +191,7 @@ export const DispatchBoardPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const actionInFlight = useRef(false);
   const [nowMs, setNowMs] = useState(Date.now());
 
   const [orderId, setOrderId] = useState('');
@@ -273,6 +274,10 @@ export const DispatchBoardPage = () => {
   };
 
   const runAction = async (action: () => Promise<unknown>): Promise<void> => {
+    // React state disables the button on the next render, not in the same tick. Guard the
+    // in-flight action so a double click cannot create two trips or advance twice.
+    if (actionInFlight.current) return;
+    actionInFlight.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -281,6 +286,7 @@ export const DispatchBoardPage = () => {
     } catch (caught) {
       setError(apiMessage(caught));
     } finally {
+      actionInFlight.current = false;
       setBusy(false);
     }
   };
@@ -539,9 +545,10 @@ export const DispatchBoardPage = () => {
                           <div>
                             <strong>{trip.order_no || trip.id}</strong>
                             <span>{customerName(trip)}</span>
+                            <span className="muted">{trip.id}</span>
                           </div>
                           <Badge tone={TONE[trip.status] ?? 'neutral'}>
-                            {t(`dispatch.tripStatus.${trip.status}`)}
+                            {t(`dispatch.tripStatus.${trip.status}`, { defaultValue: trip.status })}
                           </Badge>
                         </div>
                         <div className="trip-card__meta">
@@ -551,6 +558,9 @@ export const DispatchBoardPage = () => {
                           <span>
                             {t('dispatch.m11.truck')}:{' '}
                             {trip.truck_plate || <em>{t('dispatch.m11.unassigned')}</em>}
+                          </span>
+                          <span>
+                            {t('dispatch.m11.driver')}: {trip.driver_name || '—'}
                           </span>
                           <span>
                             {t('dispatch.m11.grade')}: {trip.concrete_grade || '—'} ·{' '}
@@ -596,8 +606,7 @@ export const DispatchBoardPage = () => {
                                   busy ||
                                   !trip.truck_id ||
                                   (trip.status === 'loading' &&
-                                    (!loadedDrafts[trip.id] ||
-                                      Number(loadedDrafts[trip.id]) <= 0))
+                                    Number(loadedDrafts[trip.id] ?? trip.target_m3) <= 0)
                                 }
                                 onClick={() => advance(trip)}
                               >

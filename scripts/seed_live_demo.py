@@ -554,6 +554,68 @@ def seed_orders(api: Api, customers: dict[str, str], projects: dict[str, str]) -
     return total
 
 
+def seed_dispatch_trips(api: Api) -> int:
+    """Create six M11 trips once, without advancing them.
+
+    Dispatch trips have no external business key, so the driver name is the idempotency
+    key. The seed uses only accepted DEMO orders and available trucks from the board;
+    it never invents a trip date and never reuses a truck that is already busy.
+    """
+    board = api.get("/api/trips")
+    existing = {
+        str(trip.get("driver_name", "")): trip
+        for trip in board.get("trips", [])
+        if str(trip.get("driver_name", "")).startswith("DEMO/M11-")
+    }
+    trucks = [
+        truck
+        for truck in board.get("trucks", [])
+        if truck.get("status") == "available" and truck.get("active") is True
+    ]
+    available_plants = {str(truck.get("plant_id")) for truck in trucks}
+    orders = [
+        order
+        for order in board.get("orders", [])
+        if str(order.get("order_no", "")).startswith("DEMO-ORD-")
+        and float(order.get("remaining_m3") or 0) > 0
+        and str(order.get("plant_id") or "") in available_plants
+    ]
+    if not orders:
+        raise RuntimeError("dispatch seed needs at least one accepted DEMO order with an available truck")
+    used_trucks = {str(trip.get("truck_id")) for trip in board.get("trips", []) if trip.get("truck_id")}
+    created = 0
+    for index in range(6):
+        driver = f"DEMO/M11-{index + 1:02d}"
+        if driver in existing:
+            continue
+        order = orders[index % len(orders)]
+        plant = str(order.get("plant_id") or "")
+        truck = next(
+            (row for row in trucks if str(row.get("plant_id")) == plant and str(row.get("id")) not in used_trucks),
+            None,
+        )
+        if truck is None:
+            raise RuntimeError(f"dispatch seed cannot find an available truck at plant {plant}")
+        used_trucks.add(str(truck["id"]))
+        target = min(6.0, float(order.get("remaining_m3") or 0))
+        if target <= 0:
+            raise RuntimeError(f"dispatch seed order {order.get('order_no')} has no remaining volume")
+        response = api.post(
+            "/api/trips",
+            {
+                "orderId": order["id"],
+                "truckId": truck["id"],
+                "driverName": driver,
+                "targetM3": target,
+                "plantId": plant,
+            },
+        )
+        existing[driver] = response["trip"]
+        created += 1
+    print(f"dispatch_trips: {len(existing)} DEMO/M11 trips ensured ({created} created this run)")
+    return len(existing)
+
+
 def seed_invoices(api: Api, customers: dict[str, str]) -> int:
     existing = api.get("/api/m1/invoices")["invoices"]
     created_ids: list[str] = []
@@ -637,6 +699,7 @@ def main() -> int:
     trucks, _drivers = seed_fleet(api)
     seed_maintenance(api, trucks)
     seed_orders(api, customers, projects)
+    seed_dispatch_trips(api)
     seed_invoices(api, customers)
     print(f"seed_writes: {api.writes}")
     return 0

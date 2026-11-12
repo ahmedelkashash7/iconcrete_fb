@@ -80,11 +80,13 @@ describe('ICONCRETE API', () => {
     const body = (await response.json()) as {
       brand: { name: string; tagline: string };
       phase: number;
+      module: string;
       storage: { mode: string; adapter: string; durable: boolean };
     };
     expect(body.brand.name).toBe('ICONCRETE');
     expect(body.brand.tagline).toBe('Concrete Management Solutions');
-    expect(body.phase).toBe(2);
+    expect(body.phase).toBe(3);
+    expect(body.module).toBe('M11');
     // Default mode for the test process is the in-memory adapter, reported explicitly.
     expect(body.storage.mode).toBe('demo');
     expect(body.storage.adapter).toBe('memory');

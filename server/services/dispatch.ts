@@ -37,6 +37,23 @@ const numOrNull = (value: unknown): number | null => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
+/** PostgreSQL returns dates as Date objects; the API contract is ISO text. */
+const dateOnly = (value: unknown): string => {
+  if (value === null || value === undefined) return '';
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  const text = String(value);
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? text.slice(0, 10) : parsed.toISOString().slice(0, 10);
+};
+
+const isoDateTime = (value: unknown): string | null => {
+  if (value === null || value === undefined) return null;
+  if (value instanceof Date) return value.toISOString();
+  const text = String(value);
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? text : parsed.toISOString();
+};
+
 const newId = (prefix: string): string =>
   `${prefix}-${crypto.randomUUID().replace(/-/g, '').slice(0, 10).toUpperCase()}`;
 
@@ -206,19 +223,19 @@ const toTrip = (row: Row): DispatchTripRow => {
     target_m3: numOrNull(row.target_m3) ?? numOrNull(row.loaded_volume_m3) ?? 0,
     loaded_m3: numOrNull(row.loaded_m3) ?? numOrNull(row.loaded_volume_m3),
     status,
-    departure_time: departure,
-    arrive_site_time: nullable(row.arrive_site_time),
-    finish_unload_time: nullable(row.finish_unload_time),
-    return_time: returned,
+    departure_time: isoDateTime(departure),
+    arrive_site_time: isoDateTime(row.arrive_site_time),
+    finish_unload_time: isoDateTime(row.finish_unload_time),
+    return_time: isoDateTime(returned),
     wait_min_at_site: wait,
     wait_flagged: isWaitFlagged(wait),
     cycle_minutes: cycleMinutes(departure, returned),
     site_wait_minutes: siteWaitMinutes(nullable(row.arrive_site_time), nullable(row.finish_unload_time)) ?? wait,
-    stage_started_at: stage,
+    stage_started_at: isoDateTime(stage),
     stage_elapsed_minutes: stageElapsed,
     cancel_reason: str(row.cancel_reason) || str(row.aborted_reason),
-    trip_date: str(row.trip_date).slice(0, 10),
-    created_at: str(row.created_at),
+    trip_date: dateOnly(row.trip_date),
+    created_at: isoDateTime(row.created_at) ?? '',
     order_no: str(row.order_no),
     concrete_grade: str(row.concrete_grade),
     order_status: str(row.order_status),
@@ -378,6 +395,8 @@ export class DispatchService {
         `${TRIP_SELECT}
            and tr.trip_date = $2::date
            and ($3::text = '' or tr.plant_id = $3)
+           and tr.status in ('queued', 'loading', 'loaded', 'traveling',
+                             'unloading', 'unloaded', 'returned', 'cancelled')
          order by tr.created_at desc`,
         [context.tenant.companyId, date, plantId],
       );
@@ -449,8 +468,8 @@ export class DispatchService {
           assigned_m3: assigned,
           remaining_m3: Math.max(0, quantity - assigned),
           status: str(row.status),
-          delivery_date: str(row.delivery_date).slice(0, 10),
-          order_date: str(row.order_date).slice(0, 10),
+          delivery_date: dateOnly(row.delivery_date),
+          order_date: dateOnly(row.order_date),
         };
       });
 
@@ -834,7 +853,7 @@ export class DispatchService {
         event: str(row.event),
         actor: str(row.actor),
         reason: str(row.reason),
-        created_at: str(row.created_at),
+        created_at: isoDateTime(row.created_at) ?? '',
       }));
     });
   };

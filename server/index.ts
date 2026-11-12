@@ -363,8 +363,8 @@ export const createApp = async (
         const ping = db ? await db.ping() : null;
         return json({
           status: 'ok',
-          phase: 2,
-          module: 'M1',
+          phase: 3,
+          module: 'M11',
           brand: { name: 'ICONCRETE', tagline: 'Concrete Management Solutions' },
           storage: {
             mode: storage.mode,
