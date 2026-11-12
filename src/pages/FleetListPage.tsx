@@ -89,6 +89,26 @@ export const FleetListPage = () => {
   const [maintenanceTruck, setMaintenanceTruck] = useState<Truck | null>(null);
   const [renewDriver, setRenewDriver] = useState<string | null>(null);
   const [renewDate, setRenewDate] = useState('');
+  const [addMode, setAddMode] = useState<'truck' | 'driver' | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [truckForm, setTruckForm] = useState({
+    plantId: 'PLT-0001',
+    plateNo: '',
+    capacityM3: '8',
+    mixerType: 'drum',
+    odometerKm: '',
+    ownership: 'owned',
+    insuranceExpiresAt: '',
+  });
+  const [driverForm, setDriverForm] = useState({
+    plantId: 'PLT-0001',
+    employeeRef: '',
+    fullName: '',
+    phone: '',
+    licenceNo: '',
+    licenceClass: 'C',
+    licenceExpiresAt: '',
+  });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -145,6 +165,67 @@ export const FleetListPage = () => {
       await load();
     } catch (caught) {
       setError(apiMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveTruck = async () => {
+    setFormError(null);
+    const capacity = Number(truckForm.capacityM3);
+    if (!truckForm.plateNo.trim() || !Number.isFinite(capacity) || capacity <= 0) {
+      setFormError('fleet.err.required');
+      return;
+    }
+    setBusy(true);
+    try {
+      await apiFetch('/api/fleet/trucks', {
+        method: 'POST',
+        body: JSON.stringify({
+          plantId: truckForm.plantId,
+          plateNo: truckForm.plateNo.trim(),
+          capacityM3: capacity,
+          mixerType: truckForm.mixerType,
+          odometerKm: truckForm.odometerKm === '' ? null : Number(truckForm.odometerKm),
+          ownership: truckForm.ownership,
+          insuranceExpiresAt: truckForm.insuranceExpiresAt || null,
+        }),
+      });
+      setAddMode(null);
+      setTruckForm((current) => ({ ...current, plateNo: '', odometerKm: '', insuranceExpiresAt: '' }));
+      await load();
+    } catch (caught) {
+      setFormError(apiMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveDriver = async () => {
+    setFormError(null);
+    if (!driverForm.fullName.trim() || !driverForm.licenceNo.trim()) {
+      setFormError('fleet.err.required');
+      return;
+    }
+    setBusy(true);
+    try {
+      await apiFetch('/api/fleet/drivers', {
+        method: 'POST',
+        body: JSON.stringify({
+          plantId: driverForm.plantId,
+          employeeRef: driverForm.employeeRef.trim(),
+          fullName: driverForm.fullName.trim(),
+          phone: driverForm.phone.trim(),
+          licenceNo: driverForm.licenceNo.trim(),
+          licenceClass: driverForm.licenceClass,
+          licenceExpiresAt: driverForm.licenceExpiresAt || null,
+        }),
+      });
+      setAddMode(null);
+      setDriverForm((current) => ({ ...current, employeeRef: '', fullName: '', phone: '', licenceNo: '', licenceExpiresAt: '' }));
+      await load();
+    } catch (caught) {
+      setFormError(apiMessage(caught));
     } finally {
       setBusy(false);
     }
@@ -343,7 +424,137 @@ export const FleetListPage = () => {
           )}
         </div>
         {level < 4 ? <p className="muted">{t('fleet.readOnly')}</p> : null}
+        {level >= 4 ? (
+          <div className="filters__actions">
+            <button
+              type="button"
+              className="btn btn--primary btn--sm"
+              disabled={busy}
+              onClick={() => {
+                setFormError(null);
+                setAddMode('truck');
+              }}
+            >
+              {t('fleet.addTruck')}
+            </button>
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              disabled={busy}
+              onClick={() => {
+                setFormError(null);
+                setAddMode('driver');
+              }}
+            >
+              {t('fleet.addDriver')}
+            </button>
+          </div>
+        ) : null}
       </Card>
+
+      {addMode === 'truck' ? (
+        <Card title={t('fleet.addTruck')}>
+          {formError ? <ErrorNote>{t(formError)}</ErrorNote> : null}
+          <div className="form-grid">
+            <label className="field">
+              <span>{t('fleet.plant')}</span>
+              <select value={truckForm.plantId} onChange={(event) => setTruckForm({ ...truckForm, plantId: event.target.value })}>
+                {plants.map((plant) => (
+                  <option key={plant} value={plant}>{plant}</option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>{t('fleet.plate')}</span>
+              <input value={truckForm.plateNo} onChange={(event) => setTruckForm({ ...truckForm, plateNo: event.target.value })} />
+            </label>
+            <label className="field">
+              <span>{t('fleet.capacity')} (m³)</span>
+              <input type="number" min="0" step="0.1" value={truckForm.capacityM3} onChange={(event) => setTruckForm({ ...truckForm, capacityM3: event.target.value })} />
+            </label>
+            <label className="field">
+              <span>{t('fleet.mixer')}</span>
+              <select value={truckForm.mixerType} onChange={(event) => setTruckForm({ ...truckForm, mixerType: event.target.value })}>
+                {['drum', 'rear_discharge', 'front_discharge', 'other'].map((type) => (
+                  <option key={type} value={type}>{t(`fleet.mixer.${type}`)}</option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>{t('fleet.odometer')} (km)</span>
+              <input type="number" min="0" value={truckForm.odometerKm} onChange={(event) => setTruckForm({ ...truckForm, odometerKm: event.target.value })} />
+            </label>
+            <label className="field">
+              <span>{t('fleet.ownership')}</span>
+              <select value={truckForm.ownership} onChange={(event) => setTruckForm({ ...truckForm, ownership: event.target.value })}>
+                {['owned', 'rented', 'leased'].map((type) => (
+                  <option key={type} value={type}>{t(`fleet.ownership.${type}`)}</option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>{t('fleet.insuranceExpiry')}</span>
+              <input type="date" value={truckForm.insuranceExpiresAt} onChange={(event) => setTruckForm({ ...truckForm, insuranceExpiresAt: event.target.value })} />
+            </label>
+          </div>
+          <div className="filters__actions">
+            <button type="button" className="btn btn--primary btn--sm" disabled={busy} onClick={() => void saveTruck()}>
+              {t('common.save')}
+            </button>
+            <button type="button" className="btn btn--ghost btn--sm" onClick={() => setAddMode(null)}>
+              {t('common.cancel')}
+            </button>
+          </div>
+        </Card>
+      ) : null}
+
+      {addMode === 'driver' ? (
+        <Card title={t('fleet.addDriver')}>
+          {formError ? <ErrorNote>{t(formError)}</ErrorNote> : null}
+          <div className="form-grid">
+            <label className="field">
+              <span>{t('fleet.plant')}</span>
+              <select value={driverForm.plantId} onChange={(event) => setDriverForm({ ...driverForm, plantId: event.target.value })}>
+                {plants.map((plant) => (
+                  <option key={plant} value={plant}>{plant}</option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>{t('fleet.driver')}</span>
+              <input value={driverForm.fullName} onChange={(event) => setDriverForm({ ...driverForm, fullName: event.target.value })} />
+            </label>
+            <label className="field">
+              <span>{t('fleet.employeeRef')}</span>
+              <input value={driverForm.employeeRef} onChange={(event) => setDriverForm({ ...driverForm, employeeRef: event.target.value })} />
+            </label>
+            <label className="field">
+              <span>{t('fleet.phone')}</span>
+              <input value={driverForm.phone} onChange={(event) => setDriverForm({ ...driverForm, phone: event.target.value })} />
+            </label>
+            <label className="field">
+              <span>{t('fleet.licence')}</span>
+              <input value={driverForm.licenceNo} onChange={(event) => setDriverForm({ ...driverForm, licenceNo: event.target.value })} />
+            </label>
+            <label className="field">
+              <span>{t('fleet.licenceClass')}</span>
+              <input value={driverForm.licenceClass} onChange={(event) => setDriverForm({ ...driverForm, licenceClass: event.target.value })} />
+            </label>
+            <label className="field">
+              <span>{t('fleet.licenceExpiry')}</span>
+              <input type="date" value={driverForm.licenceExpiresAt} onChange={(event) => setDriverForm({ ...driverForm, licenceExpiresAt: event.target.value })} />
+            </label>
+          </div>
+          <div className="filters__actions">
+            <button type="button" className="btn btn--primary btn--sm" disabled={busy} onClick={() => void saveDriver()}>
+              {t('common.save')}
+            </button>
+            <button type="button" className="btn btn--ghost btn--sm" onClick={() => setAddMode(null)}>
+              {t('common.cancel')}
+            </button>
+          </div>
+        </Card>
+      ) : null}
 
       {renewDriver ? (
         <Card title={t('fleet.renewLicence')}>

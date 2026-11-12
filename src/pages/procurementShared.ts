@@ -177,9 +177,12 @@ export const statusTone = (status: string): 'success' | 'warning' | 'danger' | '
 
 export const apiMessage = (caught: unknown): string => {
   if (caught instanceof ApiError) {
-    if (caught.status === 403) return 'errors.forbidden';
-    if (caught.status === 503) return 'common.durableRequired';
+    if (caught.status === 0) return 'errors.network';
     if (caught.code === 'approval_required') return 'procurement.err.approvalRequired';
+    if (caught.status === 403) return 'errors.forbidden';
+    if (caught.status === 401) return 'errors.unauthorized';
+    if (caught.status === 404) return 'errors.notFound';
+    if (caught.status === 503) return 'common.durableRequired';
     if (caught.code === 'duplicate_invoice') return 'procurement.err.duplicateInvoice';
     if (caught.code === 'invoice_arithmetic') return 'procurement.err.invoiceArithmetic';
     if (caught.code === 'payment_invoice_not_approved') return 'procurement.err.paymentInvoice';
@@ -191,6 +194,8 @@ export const apiMessage = (caught: unknown): string => {
     if (caught.code === 'plant_scope') return 'inventory.err.plantScope';
     if (caught.code === 'supplier_not_found') return 'procurement.err.supplierMissing';
     if (caught.code === 'invoice_not_found') return 'procurement.err.invoiceMissing';
+    if (caught.status === 400 || caught.status === 422) return 'errors.validation';
+    return 'errors.generic';
   }
-  return 'errors.network';
+  return 'errors.generic';
 };

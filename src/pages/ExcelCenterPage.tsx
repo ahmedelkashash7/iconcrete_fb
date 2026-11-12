@@ -176,6 +176,7 @@ export const ExcelCenterPage = () => {
         if (caught.code === 'file_too_large') setError('excel.error.fileSize');
         else if (caught.code === 'unsupported_type') setError('excel.error.fileType');
         else if (caught.code === 'no_rows' || caught.code === 'parse_error') setError('excel.error.parse');
+        else if (caught.status === 400 || caught.status === 422) setError('excel.error.parse');
         else if (caught.status === 403) setError('errors.forbidden');
         else setError('excel.error.network');
       } else {
