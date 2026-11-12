@@ -13,6 +13,7 @@ import {
   type TableColumn,
 } from '../components/ui';
 import type { Lang } from '../types';
+import { TEST_TYPES, type TestType } from '../core/quality';
 import { NcrDetailPage } from './NcrDetailPage';
 import { QualityTestDetailPage } from './QualityTestDetailPage';
 
@@ -45,8 +46,23 @@ const STATUS_TONE: Record<string, BadgeTone> = {
   inconclusive: 'warning',
 };
 
-const TEST_TYPES = ['slump', 'cube_strength', 'temperature', 'density', 'other'] as const;
 const STATUSES = ['sampled', 'testing', 'passed', 'failed', 'inconclusive'] as const;
+
+const localDateTime = (date = new Date()): string => {
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+};
+
+const emptyCreate = () => ({
+  plantId: '',
+  testType: 'cube_strength' as TestType,
+  sampledAt: localDateTime(),
+  ageDays: '28',
+  requiredSpecimenCount: '3',
+  specMin: '',
+  specMax: '',
+  specSourceNote: '',
+});
 
 const apiMessage = (caught: unknown): string => {
   if (caught instanceof ApiError) {
@@ -72,6 +88,10 @@ export const QualityListPage = () => {
   const [error, setError] = useState<string | null>(null);
   const [selectedTestId, setSelectedTestId] = useState<string | null>(null);
   const [selectedNcrId, setSelectedNcrId] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [create, setCreate] = useState(emptyCreate);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -103,6 +123,73 @@ export const QualityListPage = () => {
     }
     return [...seen.entries()];
   }, [rows, lang]);
+
+  const openCreate = () => {
+    const next = emptyCreate();
+    next.plantId = plants[0]?.[0] ?? '';
+    setCreate(next);
+    setCreateError(null);
+    setShowCreate(true);
+  };
+
+  const createTest = async () => {
+    const sampledAt = create.sampledAt ? new Date(create.sampledAt) : null;
+    const ageDays = create.ageDays === '' ? null : Number(create.ageDays);
+    const required = create.requiredSpecimenCount === '' ? null : Number(create.requiredSpecimenCount);
+    const specMin = create.specMin === '' ? null : Number(create.specMin);
+    const specMax = create.specMax === '' ? null : Number(create.specMax);
+    if (!create.plantId || !sampledAt || Number.isNaN(sampledAt.getTime())) {
+      setCreateError('quality.new.dateRequired');
+      return;
+    }
+    if (sampledAt.getTime() > Date.now() + 5 * 60_000) {
+      setCreateError('quality.new.futureDate');
+      return;
+    }
+    if (create.testType === 'cube_strength' && (!ageDays || !Number.isInteger(ageDays) || ageDays < 1 || ageDays > 365)) {
+      setCreateError('quality.new.ageRequired');
+      return;
+    }
+    if (!required || !Number.isInteger(required) || required < 1 || required > 20) {
+      setCreateError('quality.new.specimenRequired');
+      return;
+    }
+    if ((specMin === null) !== (specMax === null) || (specMin !== null && specMax !== null && (specMin < 0 || specMax < 0 || specMin > specMax))) {
+      setCreateError('quality.new.limitsInvalid');
+      return;
+    }
+    if (create.testType === 'cube_strength' && specMax !== null && specMax > 200) {
+      setCreateError('quality.new.strengthInvalid');
+      return;
+    }
+    if (!create.specSourceNote.trim()) {
+      setCreateError('quality.new.sourceRequired');
+      return;
+    }
+    setCreating(true);
+    setCreateError(null);
+    try {
+      const response = await apiFetch<{ test: QualityTest }>('/api/quality/tests', {
+        method: 'POST',
+        body: JSON.stringify({
+          plantId: create.plantId,
+          testType: create.testType,
+          sampledAt: sampledAt.toISOString(),
+          ageDays,
+          requiredSpecimenCount: required,
+          specMin,
+          specMax,
+          specSourceNote: create.specSourceNote.trim(),
+        }),
+      });
+      setShowCreate(false);
+      setSelectedTestId(response.test.id);
+    } catch (caught) {
+      setCreateError(apiMessage(caught));
+    } finally {
+      setCreating(false);
+    }
+  };
 
   const visible = useMemo(
     () =>
@@ -211,7 +298,81 @@ export const QualityListPage = () => {
         badge={<Badge tone="purple">{visible.length}</Badge>}
       />
 
-      <Card>
+      <Card
+        actions={
+          level >= 3 ? (
+            <button type="button" className="btn btn--primary btn--sm" onClick={openCreate}>
+              {t('quality.new')}
+            </button>
+          ) : null
+        }
+      >
+        {showCreate ? (
+          <div className="filters">
+            <label className="field">
+              <span>{t('quality.plant')}</span>
+              <select value={create.plantId} onChange={(event) => setCreate({ ...create, plantId: event.target.value })}>
+                <option value="">{t('quality.new.pickPlant')}</option>
+                {plants.map(([id, name]) => (
+                  <option key={id} value={id}>{name}</option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>{t('quality.testType')}</span>
+              <select
+                value={create.testType}
+                onChange={(event) => {
+                  const testType = event.target.value as TestType;
+                  setCreate({
+                    ...create,
+                    testType,
+                    ageDays: testType === 'cube_strength' ? create.ageDays || '28' : '',
+                    requiredSpecimenCount: testType === 'cube_strength' ? create.requiredSpecimenCount || '3' : '1',
+                  });
+                }}
+              >
+                {TEST_TYPES.map((type) => (
+                  <option key={type} value={type}>{t(`quality.type.${type}`)}</option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>{t('quality.sampledAt')}</span>
+              <input type="datetime-local" value={create.sampledAt} onChange={(event) => setCreate({ ...create, sampledAt: event.target.value })} />
+            </label>
+            <label className="field">
+              <span>{t('quality.ageDays')}</span>
+              <input inputMode="numeric" value={create.ageDays} onChange={(event) => setCreate({ ...create, ageDays: event.target.value })} />
+            </label>
+            <label className="field">
+              <span>{t('quality.specimens')}</span>
+              <input inputMode="numeric" value={create.requiredSpecimenCount} onChange={(event) => setCreate({ ...create, requiredSpecimenCount: event.target.value })} />
+            </label>
+            <label className="field">
+              <span>{t('quality.limits')} — {t('common.from')}</span>
+              <input inputMode="decimal" value={create.specMin} onChange={(event) => setCreate({ ...create, specMin: event.target.value })} />
+            </label>
+            <label className="field">
+              <span>{t('quality.limits')} — {t('common.to')}</span>
+              <input inputMode="decimal" value={create.specMax} onChange={(event) => setCreate({ ...create, specMax: event.target.value })} />
+            </label>
+            <label className="field field--grow">
+              <span>{t('quality.specSource')}</span>
+              <input value={create.specSourceNote} onChange={(event) => setCreate({ ...create, specSourceNote: event.target.value })} placeholder={t('quality.new.sourceHint')} />
+            </label>
+            <div className="filters__actions">
+              <button type="button" className="btn btn--primary btn--sm" disabled={creating} onClick={() => void createTest()}>
+                {creating ? t('common.loading') : t('quality.new.submit')}
+              </button>
+              <button type="button" className="btn btn--ghost btn--sm" onClick={() => setShowCreate(false)}>
+                {t('common.cancel')}
+              </button>
+            </div>
+            {createError ? <ErrorNote>{t(createError)}</ErrorNote> : null}
+          </div>
+        ) : null}
+
         <div className="filters">
           <label className="field">
             <span>{t('quality.plant')}</span>

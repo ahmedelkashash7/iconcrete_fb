@@ -1557,10 +1557,10 @@ export class SalesService {
               o.delivery_date::text as delivery_date,
               coalesce(o.total_amount, o.quantity_m3 * o.unit_price)::text as total_amount,
               o.credit_status, o.hold_reason, o.held_from_status, o.cancel_reason,
-              c.name_ar as customer_name_ar, c.name_en as customer_name_en,
+              coalesce(c.name_ar, '') as customer_name_ar, coalesce(c.name_en, '') as customer_name_en,
               p.code as project_code
          from orders o
-         join customers c on c.id = o.customer_id and c.company_id = o.company_id
+         left join customers c on c.id = o.customer_id and c.company_id = o.company_id
          left join projects p on p.id = o.project_id and p.company_id = o.company_id
         where o.company_id = $1 and o.id = $2 and o.deleted_at is null`,
       [context.tenant.companyId, id],
@@ -1655,6 +1655,7 @@ export class SalesService {
     return this.db.withTenant(context.tenant, async (tx) => {
       const rows = await tx.unsafe<Row>(
         `select id from orders where company_id = $1 and deleted_at is null
+            and (cardinality($6::text[]) = 0 or plant_id = any($6::text[]))
             and ($2::text = '' or plant_id = $2)
             and ($3::text = '' or status = $3)
             and ($4::text = '' or customer_id = $4)
@@ -1666,6 +1667,7 @@ export class SalesService {
           filters.status ?? '',
           filters.customerId ?? '',
           filters.q ?? '',
+          context.tenant.plantIds,
         ],
       );
       const orders: SalesOrderRow[] = [];

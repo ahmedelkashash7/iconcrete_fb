@@ -18,7 +18,7 @@ interface CustomerOption {
   name_en: string;
 }
 
-const emptyForm = { customerId: '', code: '', nameAr: '', nameEn: '', siteLocation: '' };
+const emptyForm = { plantId: 'PLT-0001', customerId: '', code: '', nameAr: '', nameEn: '', siteLocation: '' };
 
 export const ProjectsPage = () => {
   const { t, i18n } = useTranslation();
@@ -64,7 +64,7 @@ export const ProjectsPage = () => {
     setSaving(true);
     setFormError(null);
     try {
-      await apiFetch('/api/projects', {
+      await apiFetch('/api/sales/projects', {
         method: 'POST',
         body: JSON.stringify(form),
       });
@@ -74,7 +74,7 @@ export const ProjectsPage = () => {
     } catch (caught) {
       if (caught instanceof ApiError && caught.status === 503) setFormError('common.durableRequired');
       else if (caught instanceof ApiError && caught.status === 403) setFormError('errors.forbidden');
-      else if (caught instanceof ApiError && caught.status === 409) setFormError('projects.duplicateCode');
+      else if (caught instanceof ApiError && (caught.status === 409 || caught.status === 422)) setFormError('projects.duplicateCode');
       else setFormError('errors.network');
     } finally {
       setSaving(false);
@@ -101,6 +101,13 @@ export const ProjectsPage = () => {
       >
         {formOpen ? (
           <div className="filters">
+            <label className="field">
+              <span>{t('common.plant')}</span>
+              <select value={form.plantId} onChange={(event) => setForm({ ...form, plantId: event.target.value })}>
+                <option value="PLT-0001">PLT-0001</option>
+                <option value="PLT-0002">PLT-0002</option>
+              </select>
+            </label>
             <label className="field field--grow">
               <span>{t('projects.customer')}</span>
               <select value={form.customerId} onChange={(event) => setForm({ ...form, customerId: event.target.value })}>

@@ -334,6 +334,47 @@ export class QualityService {
         field: 'testType',
       });
     }
+    const sampledAt = new Date(payload.sampledAt);
+    if (Number.isNaN(sampledAt.getTime())) {
+      throw new M1Error('validation_error', 422, 'sampledAt must be a valid timestamp', {
+        field: 'sampledAt',
+      });
+    }
+    if (sampledAt.getTime() > Date.now() + 5 * 60_000) {
+      throw new M1Error('validation_error', 422, 'sampledAt cannot be in the future', {
+        field: 'sampledAt',
+      });
+    }
+    if (payload.ageDays !== null && (!Number.isInteger(payload.ageDays) || payload.ageDays < 1 || payload.ageDays > 365)) {
+      throw new M1Error('validation_error', 422, 'ageDays must be a whole number between 1 and 365', {
+        field: 'ageDays',
+      });
+    }
+    if (
+      payload.requiredSpecimenCount !== null &&
+      (!Number.isInteger(payload.requiredSpecimenCount) ||
+        payload.requiredSpecimenCount < 1 ||
+        payload.requiredSpecimenCount > 20)
+    ) {
+      throw new M1Error('validation_error', 422, 'requiredSpecimenCount must be between 1 and 20', {
+        field: 'requiredSpecimenCount',
+      });
+    }
+    if (
+      (payload.specMin === null) !== (payload.specMax === null) ||
+      (payload.specMin !== null && payload.specMin < 0) ||
+      (payload.specMax !== null && payload.specMax < 0) ||
+      (payload.specMin !== null && payload.specMax !== null && payload.specMin > payload.specMax)
+    ) {
+      throw new M1Error('validation_error', 422, 'specMin and specMax must be a valid range', {
+        field: 'specMin',
+      });
+    }
+    if (payload.testType === 'cube_strength' && payload.specMax !== null && payload.specMax > 200) {
+      throw new M1Error('validation_error', 422, 'a cube strength limit above 200 MPa is implausible', {
+        field: 'specMax',
+      });
+    }
     return this.db.withTenant(context.tenant, async (tx) => {
       if (payload.batchId) {
         const batch = await tx.unsafe<{ plant_id: string }>(
@@ -437,6 +478,19 @@ export class QualityService {
         throw new M1Error(unit.classification, 422, `unit does not match ${test.test_type}`, {
           check: unit.key,
           classification: unit.classification,
+        });
+      }
+      const ceilings: Record<string, number> = {
+        slump: 300,
+        cube_strength: 200,
+        temperature: 100,
+        density: 4000,
+      };
+      const ceiling = ceilings[test.test_type];
+      if (ceiling !== undefined && payload.resultValue > ceiling) {
+        throw new M1Error('validation_error', 422, `result exceeds the plausible range for ${test.test_type}`, {
+          field: 'resultValue',
+          max: ceiling,
         });
       }
       const chronology = checkChronology({

@@ -15,6 +15,7 @@ import {
   type TableColumn,
 } from '../components/ui';
 import type { Lang } from '../types';
+import { TEST_TYPE_UNITS, type TestType } from '../core/quality';
 
 /**
  * M4 — one quality test: specimens, result entry, verification, the certificate and the rule
@@ -136,6 +137,16 @@ export const QualityTestDetailPage = ({
   const [specimenNo, setSpecimenNo] = useState('1');
   const [castAt, setCastAt] = useState('');
 
+  useEffect(() => {
+    if (!test) return;
+    setResultUnit(TEST_TYPE_UNITS[test.test_type as TestType] ?? test.result_unit ?? '');
+    setAgeDays(test.age_days === null ? '' : String(test.age_days));
+    if (test.tested_at) {
+      const tested = new Date(test.tested_at);
+      setTestedAt(new Date(tested.getTime() - tested.getTimezoneOffset() * 60_000).toISOString().slice(0, 16));
+    }
+  }, [test]);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -175,6 +186,68 @@ export const QualityTestDetailPage = ({
 
   const open = test.status === 'sampled' || test.status === 'testing';
   const certifiable = test.status === 'passed' && test.verified_at !== null;
+  const expectedUnit = TEST_TYPE_UNITS[test.test_type as TestType];
+
+  const addSpecimen = () => {
+    const number = Number(specimenNo);
+    if (!Number.isInteger(number) || number < 1 || number > 20) {
+      setActionError('quality.err.specimenNumber');
+      return;
+    }
+    if (!castAt) {
+      setActionError('quality.err.castRequired');
+      return;
+    }
+    void post('/specimens', {
+      specimenNo: number,
+      castAt: new Date(castAt).toISOString(),
+      curedUntil: null,
+    });
+  };
+
+  const submitResult = () => {
+    const value = Number(resultValue);
+    const tested = testedAt ? new Date(testedAt) : new Date();
+    const age = ageDays === '' ? null : Number(ageDays);
+    if (!Number.isFinite(value) || value <= 0) {
+      setActionError('quality.err.result');
+      return;
+    }
+    if (expectedUnit !== null && resultUnit.trim() !== expectedUnit) {
+      setActionError('quality.err.unitMismatch');
+      return;
+    }
+    if (expectedUnit === null && !resultUnit.trim()) {
+      setActionError('quality.err.unitRequired');
+      return;
+    }
+    if (test.test_type === 'cube_strength' && (!age || !Number.isInteger(age) || age < 1 || age > 365)) {
+      setActionError('quality.err.ageRequired');
+      return;
+    }
+    if (test.test_type === 'cube_strength' && value > 200) {
+      setActionError('quality.err.strengthImpossible');
+      return;
+    }
+    if (test.test_type === 'slump' && value > 300) {
+      setActionError('quality.err.slumpRange');
+      return;
+    }
+    if (test.test_type === 'density' && value > 4000) {
+      setActionError('quality.err.densityRange');
+      return;
+    }
+    if (Number.isNaN(tested.getTime()) || tested.getTime() < new Date(test.sampled_at).getTime()) {
+      setActionError('quality.err.chronology');
+      return;
+    }
+    void post('/result', {
+      resultValue: value,
+      resultUnit: expectedUnit ?? resultUnit.trim(),
+      testedAt: tested.toISOString(),
+      ageDays: age,
+    });
+  };
 
   const specimenColumns: TableColumn<Specimen>[] = [
     { key: 'specimen_no', header: t('quality.specimen'), align: 'end' },
@@ -242,13 +315,7 @@ export const QualityTestDetailPage = ({
               type="button"
               className="btn btn--ghost btn--sm"
               disabled={saving || level < 3 || !open}
-              onClick={() =>
-                void post('/specimens', {
-                  specimenNo: Number(specimenNo),
-                  castAt: castAt ? new Date(castAt).toISOString() : null,
-                  curedUntil: null,
-                })
-              }
+              onClick={addSpecimen}
             >
               {t('quality.addSpecimen')}
             </button>
@@ -264,7 +331,12 @@ export const QualityTestDetailPage = ({
           </label>
           <label className="field">
             <span>{t('quality.unit')}</span>
-            <input value={resultUnit} onChange={(event) => setResultUnit(event.target.value)} />
+            <input
+              value={resultUnit}
+              readOnly={expectedUnit !== null}
+              onChange={(event) => setResultUnit(event.target.value)}
+              title={expectedUnit !== null ? t('quality.unitLocked', { unit: expectedUnit }) : undefined}
+            />
           </label>
           <label className="field">
             <span>{t('quality.testedAt')}</span>
@@ -280,14 +352,7 @@ export const QualityTestDetailPage = ({
             type="button"
             className="btn btn--primary btn--sm"
             disabled={saving || level < 3 || !open || resultValue === ''}
-            onClick={() =>
-              void post('/result', {
-                resultValue: Number(resultValue),
-                resultUnit,
-                testedAt: testedAt ? new Date(testedAt).toISOString() : new Date().toISOString(),
-                ageDays: ageDays === '' ? null : Number(ageDays),
-              })
-            }
+            onClick={submitResult}
           >
             {t('quality.saveResult')}
           </button>

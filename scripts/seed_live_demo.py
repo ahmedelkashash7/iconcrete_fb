@@ -442,7 +442,14 @@ def seed_quality(api: Api, designs: dict[str, dict]) -> int:
 def seed_fleet(api: Api) -> tuple[dict[str, dict], dict[str, str]]:
     existing = api.get("/api/fleet/trucks")["trucks"]
     trucks: dict[str, dict] = {}
-    for index, plate in enumerate(("101", "102", "103", "104")):
+    fleet = [
+        ("101", PLANT_CAIRO, 8, 124500),
+        ("102", PLANT_CAIRO, 10, 118000),
+        ("103", PLANT_CAIRO, 12, 96500),
+        ("104", PLANT_CAIRO, 8, 142000),
+        ("201", PLANT_GIZA, 12, 87400),
+    ]
+    for plate, plant, capacity, odometer in fleet:
         row = find(existing, "plate_no", plate)
         if row:
             trucks[plate] = row
@@ -450,11 +457,11 @@ def seed_fleet(api: Api) -> tuple[dict[str, dict], dict[str, str]]:
         response = api.post(
             "/api/fleet/trucks",
             {
-                "plantId": PLANT_CAIRO,
+                "plantId": plant,
                 "plateNo": plate,
-                "capacityM3": (8, 10, 12, 8)[index],
+                "capacityM3": capacity,
                 "mixerType": "drum",
-                "odometerKm": (124500, 118000, 96500, 142000)[index],
+                "odometerKm": odometer,
                 "ownership": "owned",
                 "insuranceExpiresAt": days_ahead(180),
             },
@@ -555,11 +562,13 @@ def seed_orders(api: Api, customers: dict[str, str], projects: dict[str, str]) -
 
 
 def seed_dispatch_trips(api: Api) -> int:
-    """Create six M11 trips once, without advancing them.
+    """Create six M11 trips once, without advancing or assigning them.
 
     Dispatch trips have no external business key, so the driver name is the idempotency
-    key. The seed uses only accepted DEMO orders and available trucks from the board;
-    it never invents a trip date and never reuses a truck that is already busy.
+    key. The seed uses accepted DEMO orders with remaining volume and deliberately leaves
+    each trip unassigned: the live fleet has fewer usable trucks than the six seeded trips,
+    and assignment is itself part of the lifecycle coverage. The one-open-trip-per-truck
+    invariant is therefore never bypassed by seeding.
     """
     board = api.get("/api/trips")
     existing = {
@@ -567,22 +576,14 @@ def seed_dispatch_trips(api: Api) -> int:
         for trip in board.get("trips", [])
         if str(trip.get("driver_name", "")).startswith("DEMO/M11-")
     }
-    trucks = [
-        truck
-        for truck in board.get("trucks", [])
-        if truck.get("status") == "available" and truck.get("active") is True
-    ]
-    available_plants = {str(truck.get("plant_id")) for truck in trucks}
     orders = [
         order
         for order in board.get("orders", [])
         if str(order.get("order_no", "")).startswith("DEMO-ORD-")
         and float(order.get("remaining_m3") or 0) > 0
-        and str(order.get("plant_id") or "") in available_plants
     ]
     if not orders:
-        raise RuntimeError("dispatch seed needs at least one accepted DEMO order with an available truck")
-    used_trucks = {str(trip.get("truck_id")) for trip in board.get("trips", []) if trip.get("truck_id")}
+        raise RuntimeError("dispatch seed needs at least one accepted DEMO order with remaining volume")
     created = 0
     for index in range(6):
         driver = f"DEMO/M11-{index + 1:02d}"
@@ -590,13 +591,6 @@ def seed_dispatch_trips(api: Api) -> int:
             continue
         order = orders[index % len(orders)]
         plant = str(order.get("plant_id") or "")
-        truck = next(
-            (row for row in trucks if str(row.get("plant_id")) == plant and str(row.get("id")) not in used_trucks),
-            None,
-        )
-        if truck is None:
-            raise RuntimeError(f"dispatch seed cannot find an available truck at plant {plant}")
-        used_trucks.add(str(truck["id"]))
         target = min(6.0, float(order.get("remaining_m3") or 0))
         if target <= 0:
             raise RuntimeError(f"dispatch seed order {order.get('order_no')} has no remaining volume")
@@ -604,7 +598,6 @@ def seed_dispatch_trips(api: Api) -> int:
             "/api/trips",
             {
                 "orderId": order["id"],
-                "truckId": truck["id"],
                 "driverName": driver,
                 "targetM3": target,
                 "plantId": plant,
