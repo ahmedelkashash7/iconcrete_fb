@@ -805,9 +805,16 @@ export class CostService {
     if (producedM3 <= 0) missing.push('produced_m3_month');
     const overheadPerM3 = producedM3 > 0 ? overheadMonthly / producedM3 : 0;
 
-    const productionTotal = production.total * billedM3;
-    const overheadTotal = overheadPerM3 * billedM3;
-    const totalCost = materialCost + moistureAdjustment + productionTotal + overheadTotal;
+    /*
+     * Store the displayed money components at 2 decimals and derive the total from those
+     * exact values, so the dashboard drill-down always sums to the batch total. Computing
+     * the total from unrounded components produced a one-piastre mismatch at the boundary.
+     */
+    const materialRounded = roundMoney(materialCost);
+    const moistureRounded = roundMoney(moistureAdjustment);
+    const productionTotal = roundMoney(production.total * billedM3);
+    const overheadTotal = roundMoney(overheadPerM3 * billedM3);
+    const totalCost = roundMoney(materialRounded + moistureRounded + productionTotal + overheadTotal);
     const costPerM3 = billedM3 > 0 ? totalCost / billedM3 : null;
     const revenuePerM3 = num(batch.unit_price);
     const revenue = revenuePerM3 * billedM3;
@@ -878,11 +885,11 @@ export class CostService {
         roundQty(yieldResult.yieldM3),
         yieldResult.variancePct,
         yieldResult.flagged,
-        roundMoney(materialCost),
-        roundMoney(moistureAdjustment),
-        roundMoney(productionTotal),
-        roundMoney(overheadTotal),
-        roundMoney(totalCost),
+        materialRounded,
+        moistureRounded,
+        productionTotal,
+        overheadTotal,
+        totalCost,
         costPerM3 === null ? null : roundMoney(costPerM3),
         roundMoney(revenue),
         revenuePerM3,
