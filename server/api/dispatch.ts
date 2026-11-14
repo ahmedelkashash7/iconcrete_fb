@@ -1,6 +1,7 @@
 /** M11 dispatch API: board reads at level 1, operating writes at level 3, trucks at level 4. */
 import { M1Error } from '../services/m1';
 import { DispatchService } from '../services/dispatch';
+import { CostService } from '../services/cost';
 import { contextFor, type B1Deps } from './b1';
 import type { RoleLevel } from '../../src/types';
 
@@ -86,11 +87,16 @@ export const handleDispatch = async (request: Request, deps: B1Deps): Promise<Re
       const context = await guarded(3);
       if (context instanceof Response) return context;
       const payload = await body(request);
-      return json({
-        trip: await dispatch.advanceTrip(context, decodeURIComponent(advanceMatch[1] ?? ''), {
-          loadedM3: numOrNull(payload.loadedM3),
-        }),
+      const trip = await dispatch.advanceTrip(context, decodeURIComponent(advanceMatch[1] ?? ''), {
+        loadedM3: numOrNull(payload.loadedM3),
       });
+      let costWarning: string | undefined;
+      try {
+        await new CostService(deps.db).recomputeTrip(context, trip.id);
+      } catch (error) {
+        costWarning = error instanceof Error ? error.message : 'cost_recompute_failed';
+      }
+      return json({ trip, ...(costWarning ? { costWarning } : {}) });
     }
 
     const assignMatch = /^\/api\/trips\/([^/]+)\/assign$/.exec(path);

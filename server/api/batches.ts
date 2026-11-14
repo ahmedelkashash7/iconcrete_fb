@@ -2,6 +2,7 @@
 
 import { M1Error } from '../services/m1';
 import { BatchingService } from '../services/batching';
+import { CostService } from '../services/cost';
 import { contextFor, type B1Deps } from './b1';
 import type { RoleLevel } from '../../src/types';
 
@@ -110,11 +111,18 @@ export const handleBatches = async (request: Request, deps: B1Deps): Promise<Res
         payload.scaleCalibratedAt === null || payload.scaleCalibratedAt === undefined || payload.scaleCalibratedAt === ''
           ? null
           : str(payload.scaleCalibratedAt);
-      return json({ batch: await batches.complete(context, decodeURIComponent(completeMatch[1] ?? ''), {
+      const batch = await batches.complete(context, decodeURIComponent(completeMatch[1] ?? ''), {
         actualVolume: numOr(payload.actualVolume, Number.NaN),
         components,
         scaleCalibratedAt,
-      }) });
+      });
+      let costWarning: string | undefined;
+      try {
+        await new CostService(deps.db).recomputeBatch(context, batch.id);
+      } catch (error) {
+        costWarning = error instanceof Error ? error.message : 'cost_recompute_failed';
+      }
+      return json({ batch, ...(costWarning ? { costWarning } : {}) });
     }
 
     const holdMatch = /^\/api\/batches\/([^/]+)\/hold$/.exec(path);

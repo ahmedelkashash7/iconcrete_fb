@@ -486,8 +486,8 @@ export class BatchingService {
         `select id, material_id, valid_until, sample_at
            from moisture_readings
           where company_id = $1 and plant_id = $2
-            and sample_at <= now()
-          order by valid_until desc`,
+            and sample_at <= now() and valid_until is not null
+          order by valid_until desc, sample_at desc`,
         [context.tenant.companyId, str(b.plant_id)],
       );
       // ECP 203-2007 does not define this window in the supplied reference, so it is read from

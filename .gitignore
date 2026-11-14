@@ -37,6 +37,7 @@ bun-error.log
 __pycache__/
 *.py[cod]
 .venv/
+.venv-pg/
 venv/
 .pytest_cache/
 .ipynb_checkpoints/

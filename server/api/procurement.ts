@@ -1,6 +1,7 @@
 /** M9 procurement API. Every route re-checks the level and the plant scope in the service. */
 import { M1Error } from '../services/m1';
 import { ProcurementService } from '../services/procurement';
+import { CostService } from '../services/cost';
 import { contextFor, type B1Deps } from './b1';
 import type { RoleLevel } from '../../src/types';
 
@@ -233,6 +234,11 @@ export const handleProcurement = async (request: Request, deps: B1Deps): Promise
         action === 'verify' ? 'verified' : action === 'approve' ? 'approved' : action === 'dispute' ? 'disputed' : 'voided',
         str(payload.reason),
       );
+      if (action === 'approve') {
+        const cost = new CostService(deps.db);
+        await cost.syncMaterialPrices(context).catch(() => ({ inserted: 0, skipped: 0 }));
+        await cost.recomputeAll(context).catch(() => ({ batches: 0, trips: 0, snapshots: 0 }));
+      }
       return json({ invoice });
     }
 
