@@ -365,7 +365,7 @@ export const createApp = async (
         return json({
           status: 'ok',
           phase: 3,
-          module: 'M11',
+          module: 'M12',
           brand: { name: 'ICONCRETE', tagline: 'Concrete Management Solutions' },
           storage: {
             mode: storage.mode,

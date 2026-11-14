@@ -86,7 +86,7 @@ describe('ICONCRETE API', () => {
     expect(body.brand.name).toBe('ICONCRETE');
     expect(body.brand.tagline).toBe('Concrete Management Solutions');
     expect(body.phase).toBe(3);
-    expect(body.module).toBe('M11');
+    expect(body.module).toBe('M12');
     // Default mode for the test process is the in-memory adapter, reported explicitly.
     expect(body.storage.mode).toBe('demo');
     expect(body.storage.adapter).toBe('memory');
