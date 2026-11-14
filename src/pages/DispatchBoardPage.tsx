@@ -10,6 +10,7 @@ import {
   type DispatchTripStatus,
   type TripGroup,
 } from '../core/dispatch';
+import { formatMoney } from '../core/money';
 import type { Lang } from '../types';
 
 /**
@@ -50,6 +51,17 @@ interface Trip {
   truck_capacity_m3: number | null;
   mix_code: string;
   group: TripGroup;
+}
+
+interface TripCost {
+  trip_id: string;
+  total_cost: string;
+  cost_per_m3: string | null;
+  fuel_cost: string;
+  driver_cost: string;
+  waiting_cost: string;
+  status: 'complete' | 'incomplete';
+  missing_fields: string[];
 }
 
 interface Truck {
@@ -193,6 +205,7 @@ export const DispatchBoardPage = () => {
   const [busy, setBusy] = useState(false);
   const actionInFlight = useRef(false);
   const [nowMs, setNowMs] = useState(Date.now());
+  const [tripCosts, setTripCosts] = useState<Record<string, TripCost>>({});
 
   const [orderId, setOrderId] = useState('');
   const [target, setTarget] = useState('');
@@ -217,6 +230,13 @@ export const DispatchBoardPage = () => {
         const response = await apiFetch<Board>(`/api/trips${suffix}`);
         setBoard(response);
         setNowMs(Date.now());
+        const ids = response.trips.map((trip) => trip.id).join(',');
+        if (ids) {
+          const costs = await apiFetch<{ trips: TripCost[] }>(`/api/cost/trips?ids=${encodeURIComponent(ids)}`).catch(() => ({ trips: [] }));
+          setTripCosts(Object.fromEntries(costs.trips.map((row) => [row.trip_id, row])));
+        } else {
+          setTripCosts({});
+        }
       } catch (caught) {
         setError(apiMessage(caught));
       } finally {
@@ -538,6 +558,7 @@ export const DispatchBoardPage = () => {
                         ? trip.wait_min_at_site
                         : elapsedSince(trip.arrive_site_time, nowMs);
                     const waitFlagged = waitNow !== null && waitNow > 30;
+                    const tripCost = tripCosts[trip.id];
                     const next = nextTripStatus(trip.status);
                     return (
                       <article key={trip.id} className={`trip-card trip-card--${trip.group}`}>
@@ -578,6 +599,15 @@ export const DispatchBoardPage = () => {
                           {trip.cancel_reason ? (
                             <span className="trip-cancel-reason">
                               {t('dispatch.m11.cancelReason')}: {trip.cancel_reason}
+                            </span>
+                          ) : null}
+                          {tripCost ? (
+                            <span className={tripCost.status === 'incomplete' ? 'trip-wait trip-wait--danger' : ''}>
+                              {t('dispatch.m11.tripCost')}: {formatMoney(Number(tripCost.total_cost), lang)}
+                              {tripCost.cost_per_m3 ? ` · ${formatMoney(Number(tripCost.cost_per_m3), lang)}/m³` : ''}
+                              {tripCost.status === 'incomplete'
+                                ? ` · ${t('cost.incompleteFields', { fields: tripCost.missing_fields.join(', ') || '—' })}`
+                                : ''}
                             </span>
                           ) : null}
                         </div>

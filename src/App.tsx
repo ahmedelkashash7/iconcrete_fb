@@ -26,6 +26,10 @@ const CrmActivitiesPage = lazy(() => import('./pages/CrmActivitiesPage').then((m
 const ComplaintsPage = lazy(() => import('./pages/ComplaintsPage').then((m) => ({ default: m.ComplaintsPage })));
 const MixDesignsPage = lazy(() => import('./pages/MixDesignsPage').then((m) => ({ default: m.MixDesignsPage })));
 const BatchListPage = lazy(() => import('./pages/BatchListPage').then((m) => ({ default: m.BatchListPage })));
+const CostSettingsPage = lazy(() => import('./pages/CostPages').then((m) => ({ default: m.CostSettingsPage })));
+const CostBatchesPage = lazy(() => import('./pages/CostPages').then((m) => ({ default: m.CostBatchesPage })));
+const CostReportPage = lazy(() => import('./pages/CostPages').then((m) => ({ default: m.CostReportPage })));
+const CostDashboardPage = lazy(() => import('./pages/CostPages').then((m) => ({ default: m.CostDashboardPage })));
 const QualityListPage = lazy(() => import('./pages/QualityListPage').then((m) => ({ default: m.QualityListPage })));
 const FleetListPage = lazy(() => import('./pages/FleetListPage').then((m) => ({ default: m.FleetListPage })));
 const DispatchBoardPage = lazy(() => import('./pages/DispatchBoardPage').then((m) => ({ default: m.DispatchBoardPage })));
@@ -130,6 +134,14 @@ export const App = () => {
             <MixDesignsPage />
           ) : page === 'batches' ? (
             <BatchListPage />
+          ) : page === 'costBatches' ? (
+            <CostBatchesPage />
+          ) : page === 'costReport' ? (
+            <CostReportPage />
+          ) : page === 'costDashboard' ? (
+            <CostDashboardPage />
+          ) : page === 'costSettings' ? (
+            <CostSettingsPage />
           ) : page === 'quality' ? (
             <QualityListPage />
           ) : page === 'fleet' ? (
